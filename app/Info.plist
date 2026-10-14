@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>SaylessBar</string>
+    <key>CFBundleDisplayName</key><string>SaylessBar</string>
+    <key>CFBundleIdentifier</key><string>io.leo.saylessbar</string>
+    <key>CFBundleVersion</key><string>0.1.0</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleExecutable</key><string>SaylessBar</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <key>LSUIElement</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>SaylessBar 需要麦克风进行听写录音。</string>
+    <key>NSAppleEventsUsageDescription</key><string>SaylessBar 通过 System Events 把转写文本粘贴到焦点应用。</string>
+</dict>
+</plist>
