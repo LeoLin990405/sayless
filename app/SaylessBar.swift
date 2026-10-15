@@ -8,43 +8,43 @@ import ApplicationServices
 
 private let hubTemplate = """
 <!doctype html><html><head><meta charset="utf-8"><style>
-:root{--bg:#0d0d0d;--card:#1c1c1e;--txt:#f2f2f2;--sub:#9a9a9a;--accent:#3b82f6}
+:root{--bg:#1f1f1f;--card:#3c3b3b;--txt:#f0eeec;--sub:#b9b8b8;--accent:#5b9bd5}
 *{margin:0;box-sizing:border-box;font-family:-apple-system,"PingFang SC",sans-serif}
 body{display:flex;height:100vh;background:var(--bg);color:var(--txt);overflow:hidden}
-.side{width:240px;background:#131313;padding:22px 14px;display:flex;flex-direction:column;flex-shrink:0}
+.side{width:240px;background:#302e2e;padding:22px 14px;display:flex;flex-direction:column;flex-shrink:0}
 .logo{font-size:20px;font-weight:800;display:flex;gap:8px;align-items:center;padding:6px 12px 26px}
 .badge{background:#2563eb;color:#fff;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700}
 .nav{display:flex;flex-direction:column;gap:4px}
 .nav a{display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;color:var(--sub);text-decoration:none;font-size:14px;cursor:pointer}
-.nav a.on{background:#262626;color:var(--txt)}
+.nav a.on{background:#3a3838;color:var(--txt)}
 .nav a:hover{color:var(--txt)}
 .spacer{flex:1}
 .foot{display:flex;gap:14px;padding:10px 12px;color:var(--sub);font-size:16px}
-.main{flex:1;overflow:auto;padding:34px 40px;background-image:radial-gradient(#1c1c1c 1px,transparent 1px);background-size:22px 22px}
+.main{flex:1;overflow:auto;padding:34px 40px;background-image:radial-gradient(#2a2929 1px,transparent 1px);background-size:22px 22px}
 h1{font-size:40px;font-weight:800;letter-spacing:1px;margin-bottom:6px}
 h2.sec{font-size:19px;color:var(--sub);font-weight:700;margin:28px 0 14px}
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:560px}
 .card{background:var(--card);border-radius:16px;padding:20px;min-height:92px}
 .card .v{font-size:22px;font-weight:700}
 .card .k{font-size:14px;color:var(--sub);margin-top:10px}
-.heatcard{background:var(--card);border-radius:16px;padding:22px;max-width:560px;margin-top:16px}
+.heatcard{background:#141313;border-radius:16px;padding:22px;max-width:560px;margin-top:16px}
 .hstats{display:grid;grid-template-columns:1fr 1fr 1fr;text-align:center;margin-bottom:16px}
 .hstats .v{font-size:18px;font-weight:700}
 .hstats .k{font-size:13px;color:var(--sub);margin-top:6px}
 .wk{display:flex;gap:3px;margin-bottom:3px}
-.wk i{width:11px;height:11px;border-radius:3px;background:#232323;display:block}
+.wk i{width:11px;height:11px;border-radius:3px;background:#0d0d0d;display:block}
 .wk i.on{background:#3b82f6}
 .wkwrap{display:flex;gap:3px}
 .legend{display:flex;align-items:center;gap:4px;margin-top:12px;font-size:12px;color:var(--sub)}
 .legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
-.row{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid #1f1f1f;font-size:13px;align-items:baseline}
+.row{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid #4a4848;font-size:13px;align-items:baseline}
 .row .ts{color:var(--sub);font-family:Menlo,monospace;font-size:11px;min-width:130px}
 .row .md{color:var(--accent);min-width:80px;font-weight:600}
 .right{width:250px;flex-shrink:0;padding:34px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto}
 .keys{background:var(--card);border-radius:16px;padding:16px}
 .keys .k{font-size:13px;color:var(--sub);margin:10px 0 4px}
 .keys .k:first-child{margin-top:0}
-kbd{display:inline-block;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;padding:3px 9px;font-size:12px;margin:2px;color:var(--txt)}
+kbd{display:inline-block;background:#4a4848;border:1px solid #5a5858;border-radius:6px;padding:3px 9px;font-size:12px;margin:2px;color:var(--txt)}
 .grad{border-radius:16px;padding:18px;color:#fff}
 .grad.b{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}
 .grad.p{background:linear-gradient(135deg,#4c1d95,#7c3aed)}
@@ -53,7 +53,7 @@ kbd{display:inline-block;background:#2a2a2a;border:1px solid #3a3a3a;border-radi
 table{width:100%;border-collapse:collapse;font-size:13px}
 td{padding:8px 6px;border-bottom:1px solid #1f1f1f;color:var(--txt)}
 ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
-.chip{display:inline-block;background:#242424;border:1px solid #333;border-radius:7px;padding:4px 10px;margin:3px;font-size:12px}
+.chip{display:inline-block;background:#4a4848;border:1px solid #5a5858;border-radius:7px;padding:4px 10px;margin:3px;font-size:12px}
 .tab{display:none}.tab.on{display:block}
 </style></head><body>
 <div class="side">
@@ -266,10 +266,10 @@ final class CapsulePanel {
         p.hasShadow = true
 
         let fx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 380, height: 64))
-        fx.material = .popover            // Typeless 式浅色磨砂
+        fx.material = .hudWindow            // Typeless 浮窗实测为暗色卡
         fx.blendingMode = .behindWindow
         fx.state = .active
-        fx.appearance = NSAppearance(named: .aqua)
+        fx.appearance = NSAppearance(named: .darkAqua)
         fx.wantsLayer = true
         fx.layer?.cornerRadius = 22
         fx.layer?.masksToBounds = true
@@ -286,7 +286,7 @@ final class CapsulePanel {
             let b = NSView(frame: NSRect(x: 0, y: 15, width: 4, height: 6))
             b.wantsLayer = true
             b.layer?.cornerRadius = 2
-            b.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.75).cgColor
+            b.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.85).cgColor
             stack.addArrangedSubview(b)
             bars.append(b)
         }
@@ -298,12 +298,12 @@ final class CapsulePanel {
         let mic = NSImageView()
         mic.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "mic")?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .medium))
-        mic.contentTintColor = NSColor.systemRed
+        mic.contentTintColor = NSColor.white
         mic.frame = NSRect(x: 0, y: 0, width: 18, height: 20)
         stack.addArrangedSubview(mic)
         modeLabel = NSTextField(labelWithString: "听写")
         modeLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        modeLabel.textColor = NSColor.labelColor
+        modeLabel.textColor = NSColor.white
 
         timeLabel = NSTextField(labelWithString: "0.0s")
         timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
@@ -410,7 +410,7 @@ final class HubWindow {
             w.title = "Sayless"
             w.center()
             w.appearance = NSAppearance(named: .darkAqua)
-            w.backgroundColor = NSColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1)
+            w.backgroundColor = NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)
             let wv = WKWebView(frame: NSRect(x: 0, y: 0, width: 1080, height: 750))
             wv.autoresizingMask = [.width, .height]
             wv.setValue(false, forKey: "drawsBackground")
