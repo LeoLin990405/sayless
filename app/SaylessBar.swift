@@ -544,6 +544,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "语音问答（⌥Q）", action: #selector(askToggle), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "打开主面板…", action: #selector(showHub), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "请求辅助功能授权…", action: #selector(requestAX), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "听写历史…", action: #selector(showHistoryTab), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "打开词语库…", action: #selector(openDict), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "查看日志…", action: #selector(openLog), keyEquivalent: ""))
@@ -561,9 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             logLine("AX trusted")
             installCGEventTap()
         } else {
-            logLine("AX NOT trusted，弹系统授权框")
-            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(opts)
+            logLine("AX NOT trusted（热键走 Carbon 兜底；粘贴与防输入法拦截需授权）")
         }
     }
 
@@ -633,6 +632,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func askToggle() { hotkey(2) }
     @objc func transcribeOnly() { if !busy { transcribe(insert: false, mode: 0) } }
     @objc func showHub() { hub.show(tab: 0) }
+    @objc func requestAX() {
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(opts)
+    }
     @objc func showHistoryTab() { hub.show(tab: 1) }
     @objc func openDict() { NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory() + "/.sayless/dictionary.json")) }
     @objc func openLog() { NSWorkspace.shared.open(URL(fileURLWithPath: logPath)) }
