@@ -346,7 +346,7 @@ final class HistoryWindow {
 final class NonKeyWindow: NSWindow {
     override var canBecomeKey: Bool { false }
 }
-final class HubWindow {
+final class HubWindow: NSObject {
     private var window: NSWindow?
     private var web: WKWebView?
     func show(tab: Int = 0) {
@@ -358,7 +358,9 @@ final class HubWindow {
             w.center()
             w.appearance = NSAppearance(named: .darkAqua)
             w.backgroundColor = NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)
-            let wv = WKWebView(frame: NSRect(x: 0, y: 0, width: 1080, height: 750))
+            let cfg = WKWebViewConfiguration()
+            cfg.userContentController.add(self, name: "dict")
+            let wv = WKWebView(frame: NSRect(x: 0, y: 0, width: 1080, height: 750), configuration: cfg)
             wv.autoresizingMask = [.width, .height]
             wv.setValue(false, forKey: "drawsBackground")
             w.contentView = wv
@@ -373,8 +375,9 @@ final class HubWindow {
         NSApp.activate(ignoringOtherApps: true)
     }
     private func buildHubHTML(tab: Int = 0) -> String {
-        guard let tplPath = Bundle.main.path(forResource: "hub", ofType: "html")
-                           ?? Bundle.main.path(forResource: "hub", ofType: "html", inDirectory: "../Resources"),
+        let tplPath = Bundle.main.path(forResource: "hub", ofType: "html") ?? "(nil)"
+        logLine("hub tpl: \(tplPath)")
+        guard tplPath != "(nil)",
               let tpl = try? String(contentsOfFile: tplPath, encoding: .utf8) else {
             return "<meta charset='utf-8'><body style='background:#1f1f1f;color:#bbb'>hub.html missing in bundle</body>"
         }
@@ -411,6 +414,50 @@ final class HubWindow {
             for h in (dj["hotwords"] as? [String]) ?? [] { hotChips += "<span class='chip'>\(h)</span>" }
             for r in (dj["styleRules"] as? [String]) ?? [] { rules += "<li>\(r)</li>" }
         }
+        // 词典数据：替换行（可删）、热词 chips（可删）、词频、分应用层
+        var dictRowsEdit = "", hotChipsEdit = "", appPlayers = ""
+        var wordFreq: [String: Int] = [:]
+        let esc = { (t: String) -> String in
+            t.replacingOccurrences(of: "\\", with: "\\\\")
+             .replacingOccurrences(of: "'", with: "\\'")
+             .replacingOccurrences(of: "<", with: "&lt;")
+        }
+        if let raw = try? String(contentsOfFile: dictFile, encoding: .utf8),
+           let djData = raw.data(using: .utf8),
+           let dj = try? JSONSerialization.jsonObject(with: djData) as? [String: Any] {
+            let hotwords = (dj["hotwords"] as? [String]) ?? []
+            for e in entries {
+                let out = e["out"] ?? ""
+                for w in hotwords where out.contains(w) { wordFreq[w, default: 0] += 1 }
+            }
+            for r in (dj["replacements"] as? [[String: Any]]) ?? [] {
+                let f = esc(r["from"] as? String ?? "-")
+                let t = esc(r["to"] as? String ?? "-")
+                dictRowsEdit += "<tr><td>\(f)</td><td>→</td><td><b>\(t)</b></td><td><a style=\"color:#f87171;cursor:pointer\" onclick=\"dictPost({action:'delReplace',from:'\(f)'})\">✕</a></td></tr>"
+            }
+            for w in hotwords {
+                let c = wordFreq[w] ?? 0
+                hotChipsEdit += "<span class=\"chip\">\(esc(w)) · \(c)次 <a style=\"color:#f87171;cursor:pointer\" onclick=\"dictPost({action:'delHot',word:'\(esc(w))'})\">✕</a></span>"
+            }
+            if let apps = dj["apps"] as? [String: [String: Any]] {
+                for (name, layer) in apps {
+                    let hw = (layer["hotwords"] as? [String]) ?? []
+                    let rp = (layer["replacements"] as? [[String: Any]]) ?? []
+                    appPlayers += "<div class=\"card\" style=\"margin-bottom:12px\"><div style=\"font-weight:700\">\(esc(name))</div>"
+                    appPlayers += "<div style=\"font-size:12px;color:#999;margin:6px 0\">热词 \(hw.count) 个 · 替换 \(rp.count) 条</div>"
+                    if !hw.isEmpty { appPlayers += "<div style=\"font-size:12px\">" + hw.map { esc($0) }.joined(separator: "、") + "</div>" }
+                    appPlayers += "</div>"
+                }
+            }
+            if (dj["apps"] as? [String: Any])?.isEmpty ?? true {
+                appPlayers = "<div style=\"font-size:13px;color:#999\">尚未配置。在 dictionary.json 加 \"apps\": {\"微信\": {\"hotwords\": [...]}}，热键按下时按前台应用自动叠加。</div>"
+            }
+            if wordFreq.isEmpty {
+                wordFreq["（暂无命中，多听写几条后回来看）"] = 0
+            }
+        }
+        let wordStats = wordFreq.sorted { $0.value > $1.value }
+            .map { "<span class=\"chip\">\(esc($0.key)) · \($0.value)次</span>" }.joined(separator: " ")
         let heat = buildHeat(days)
         let histRows = entries.prefix(60).map { e -> String in
             let ts = (e["ts"] ?? "").replacingOccurrences(of: "T", with: " ").prefix(19)
@@ -425,6 +472,10 @@ final class HubWindow {
         html = html.replacingOccurrences(of: "__HISTROWS__", with: histRows)
         html = html.replacingOccurrences(of: "__DICTROWS__", with: dictRows)
         html = html.replacingOccurrences(of: "__HOTCHIPS__", with: hotChips)
+        html = html.replacingOccurrences(of: "__HOTCHIPS_EDIT__", with: hotChipsEdit)
+        html = html.replacingOccurrences(of: "__DICTROWS_EDIT__", with: dictRowsEdit)
+        html = html.replacingOccurrences(of: "__APPLAYERS__", with: appPlayers)
+        html = html.replacingOccurrences(of: "__WORDSTATS__", with: wordStats)
         html = html.replacingOccurrences(of: "__RULES__", with: rules)
         html = html.replacingOccurrences(of: "__HEAT__", with: heat)
         for i in 0...2 {
@@ -454,6 +505,53 @@ final class HubWindow {
     }
 }
 
+extension HubWindow: WKScriptMessageHandler {
+    func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "dict",
+              let body = message.body as? String,
+              let j = try? JSONSerialization.jsonObject(with: body.data(using: .utf8)!) as? [String: Any],
+              let action = j["action"] as? String else { return }
+        let dictFile = NSHomeDirectory() + "/.sayless/dictionary.json"
+        guard let raw = try? String(contentsOfFile: dictFile, encoding: .utf8),
+              var d = (try? JSONSerialization.jsonObject(with: raw.data(using: .utf8)!)) as? [String: Any] else { return }
+        var dirty = false
+        switch action {
+        case "addReplace":
+            let from = j["from"] as? String ?? "", to = j["to"] as? String ?? ""
+            if !from.isEmpty && !to.isEmpty {
+                var reps = (d["replacements"] as? [[String: Any]]) ?? []
+                reps = reps.filter { ($0["from"] as? String) != from }
+                reps.append(["from": from, "to": to])
+                d["replacements"] = reps; dirty = true
+            }
+        case "delReplace":
+            let from = j["from"] as? String ?? ""
+            var reps = (d["replacements"] as? [[String: Any]]) ?? []
+            reps = reps.filter { ($0["from"] as? String) != from }
+            d["replacements"] = reps; dirty = true
+        case "addHot":
+            let w = j["word"] as? String ?? ""
+            if !w.isEmpty {
+                var hot = (d["hotwords"] as? [String]) ?? []
+                if !hot.contains(w) { hot.append(w); d["hotwords"] = hot; dirty = true }
+            }
+        case "delHot":
+            let w = j["word"] as? String ?? ""
+            var hot = (d["hotwords"] as? [String]) ?? []
+            hot.removeAll { $0 == w }
+            d["hotwords"] = hot; dirty = true
+        default: break
+        }
+        if dirty {
+            try? JSONSerialization.data(withJSONObject: d, options: [.prettyPrinted])
+                .write(to: URL(fileURLWithPath: dictFile))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.web?.reload()
+            }
+        }
+    }
+}
+
 extension DateFormatter {
     static func iso(_ d: Date) -> String {
         let f = DateFormatter()
@@ -478,6 +576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var ptt = false        // 按住说话模式
     var soundOn = true
     var savedClipboard: String?
+    var targetApp = ""     // 按热键时的前台应用名，用于分应用词层
     var stopWork: DispatchWorkItem?
     let capsule = CapsulePanel()
     let hub = HubWindow()
@@ -513,7 +612,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loadAppConfig()
         registerHotkeys()
         checkAX()
-        logLine("launched v4.1 ptt=\(ptt)")
+        logLine("launched v4.2 ptt=\(ptt)")
         if !ptt { } // toggle 模式默认
     }
 
@@ -675,6 +774,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func startRecording() {
         busy = true
+        targetApp = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
         recorder.start { [weak self] lvl in self?.capsule.setLevel(lvl) }
         logLine("recording start mode=\(pendingMode)")
         stopWork?.cancel()
@@ -712,6 +812,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var args = [saylessPath, "transcribe", wavPath, "--no-insert"]
         if m == 1 { args += ["--translate"] }
         if m == 2 { args += ["--ask"] }
+        if !targetApp.isEmpty { args += ["--app", targetApp] }
         if force { args += ["--force"] }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")

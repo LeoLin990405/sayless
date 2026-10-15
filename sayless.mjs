@@ -104,11 +104,22 @@ const ensureInit = () => {
   return cfg;
 };
 
-// ---- 词语库（确定性，零云端）----
-function applyDict(text) {
+// ---- 词语库（确定性，零云端；支持分应用词层）----
+function loadDict(app) {
   const d = readJson(DICT);
+  const layers = [d];
+  const a = app && (d.apps || {})[app];
+  if (a) layers.push(a);
+  return {
+    replacements: layers.flatMap(l => l.replacements || []),
+    hotwords: layers.flatMap(l => l.hotwords || []),
+    styleRules: layers.flatMap(l => l.styleRules || [])
+  };
+}
+function applyDict(text, app) {
+  const d = loadDict(app);
   let out = text;
-  for (const r of d.replacements || []) {
+  for (const r of d.replacements) {
     if (r.pattern) out = out.replace(new RegExp(r.pattern, 'g'), r.to);
     else if (r.from) out = out.split(r.from).join(r.to);
   }
@@ -215,10 +226,10 @@ async function polishOnce(cfg, d, provider, model, text, signal) {
   const out = await chat(cfg, provider, model, [{ role: 'system', content: sys }, { role: 'user', content: text }], cfg.llm.temperature ?? 0, signal);
   return applyDict(out);
 }
-async function polish(text, { dryRun = false, provider: pOv, model: mOv, cross = false } = {}) {
+async function polish(text, { dryRun = false, provider: pOv, model: mOv, cross = false, app = null } = {}) {
   const cfg = ensureInit();
-  const d = readJson(DICT);
-  text = applyDict(text);
+  const d = loadDict(app);
+  text = applyDict(text, app);
   if (dryRun) return { text, applied: 'dict-only(dry-run)' };
   if (cross) {
     const out = await crossEnhance(cfg, 'polish', text, (p, m, t, sig) => polishOnce(cfg, d, p, m, applyDict(t), sig));
@@ -381,7 +392,7 @@ function insertText(text) {
 }
 
 // ---- 统一管线 ----
-async function finishPipeline(wavPath, { insert = true, raw = false, translateTo = null, askMode = false, provider = null, model = null, cross = false } = {}) {
+async function finishPipeline(wavPath, { insert = true, raw = false, translateTo = null, askMode = false, provider = null, model = null, cross = false, app = null } = {}) {
   ensureInit();
   const rawText = await asr(wavPath);
   const speech = rawText.replace(/[。，,.！!？?、；;：:\s()（）【】\[\]〔〕]/g, '');
@@ -392,13 +403,13 @@ async function finishPipeline(wavPath, { insert = true, raw = false, translateTo
   let out;
   if (askMode) out = await askAnswer(rawText, { provider, model });
   else if (translateTo) out = await translateText(applyDict(rawText), translateTo, { provider, model, cross });
-  else if (raw) out = applyDict(rawText);
-  else out = (await polish(rawText, { provider, model, cross })).text;
+  else if (raw) out = applyDict(rawText, app);
+  else out = (await polish(rawText, { provider, model, cross, app })).text;
   console.error(`识别: ${rawText}\n结果: ${out}`);
   try {
     const mode = askMode ? 'ask' : (translateTo ? `translate:${translateTo}` : (raw ? 'raw' : 'dictate'));
     fs.appendFileSync(path.join(DIR, 'history.jsonl'),
-      JSON.stringify({ ts: new Date().toISOString(), mode, raw: rawText.slice(0, 500), out: String(out).slice(0, 1000), inserted: insert }) + '\n');
+      JSON.stringify({ ts: new Date().toISOString(), mode, app: app || undefined, raw: rawText.slice(0, 500), out: String(out).slice(0, 1000), inserted: insert }) + '\n');
   } catch { /* 历史落盘失败不阻塞主流程 */ }
   if (insert) insertText(out); else console.log(out);
 }
@@ -408,7 +419,7 @@ const [, , cmd, ...rest] = process.argv;
 const arg = (name, def) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : def; };
 const has = (name) => rest.includes(name);
 const FLAGGED = new Set(['--sec', '-o', '--raw', '--no-insert', '--dry-run', '--translate', '--to', '--ask', '--say', '--provider', '--model', '--cross', '-n']);
-const positional = () => rest.filter((v, i) => !FLAGGED.has(v) && !['--sec', '-o', '--translate', '--to', '--provider', '--model'].includes(rest[i - 1]));
+const positional = () => rest.filter((v, i) => !FLAGGED.has(v) && !['--sec', '-o', '--translate', '--to', '--provider', '--model', '--app'].includes(rest[i - 1]));
 const overrides = () => ({ provider: arg('--provider'), model: arg('--model') });
 
 try {
@@ -441,7 +452,7 @@ try {
     await finishPipeline(positional()[0] || TMP_WAV, {
       insert: !has('--no-insert'), raw: has('--raw'),
       translateTo: has('--translate') ? (arg('--translate') || (ensureInit().translate?.to ?? 'en')) : null,
-      askMode: has('--ask'), cross: has('--cross'), ...overrides()
+      askMode: has('--ask'), cross: has('--cross'), app: arg('--app') || null, ...overrides()
     });
   }
   else if (cmd === 'run') {
@@ -450,15 +461,57 @@ try {
     await finishPipeline(TMP_WAV, {
       insert: !has('--no-insert'), raw: has('--raw'),
       translateTo: has('--translate') ? (arg('--translate') || (ensureInit().translate?.to ?? 'en')) : null,
-      askMode: has('--ask'), cross: has('--cross'), ...overrides()
+      askMode: has('--ask'), cross: has('--cross'), app: arg('--app') || null, ...overrides()
     });
   }
   else if (cmd === 'insert') { ensureInit(); insertText(positional().join(' ')); }
   else if (cmd === 'dict') {
     ensureInit();
+    const save = (d) => fs.writeFileSync(DICT, JSON.stringify(d, null, 2));
     const d = readJson(DICT);
-    if (rest[0] === 'add') { d.replacements.push({ from: rest[1], to: rest[2] }); fs.writeFileSync(DICT, JSON.stringify(d, null, 2)); console.log(`已加：${rest[1]} → ${rest[2]}`); }
-    else console.log(JSON.stringify(d, null, 2));
+    const sub = rest[0];
+    if (sub === 'add') {
+      d.replacements.push({ from: rest[1], to: rest[2] }); save(d);
+      console.log(`已加替换：${rest[1]} → ${rest[2]}`);
+    } else if (sub === 'del') {
+      const before = d.replacements.length;
+      d.replacements = d.replacements.filter(r => r.from !== rest[1] && r.to !== rest[1]);
+      save(d); console.log(`已删 ${before - d.replacements.length} 条含「${rest[1]}」的替换`);
+    } else if (sub === 'add-hot') {
+      d.hotwords = [...new Set([...(d.hotwords || []), rest[1]])]; save(d);
+      console.log(`已加热词：${rest[1]}`);
+    } else if (sub === 'del-hot') {
+      d.hotwords = (d.hotwords || []).filter(w => w !== rest[1]); save(d);
+      console.log(`已删热词：${rest[1]}`);
+    } else if (sub === 'import') {
+      // 批量导入候选：每行一个词条；「a => b」或「a→b」或「a<TAB>b」解析为替换，否则进热词
+      const src = rest[1];
+      const text = fs.readFileSync(src, 'utf8');
+      let hot = 0, rep = 0;
+      for (const line of text.split('\n').map(l => l.trim()).filter(Boolean)) {
+        const m = line.match(/^(.+?)(?:\s*(?:=>|→|\t)\s*(.+))$/);
+        if (m && m[2]) { d.replacements.push({ from: m[1].trim(), to: m[2].trim() }); rep++; }
+        else { d.hotwords = [...new Set([...(d.hotwords || []), line])]; hot++; }
+      }
+      save(d); console.log(`导入完成：${rep} 条替换，${hot} 个热词`);
+    } else if (sub === 'stats') {
+      // 词频：扫 history.jsonl 的 out 字段统计热词出现次数
+      const file = path.join(DIR, 'history.jsonl');
+      const freq = {};
+      let total = 0;
+      if (fs.existsSync(file)) {
+        for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+          if (!line.trim()) continue;
+          try { const e = JSON.parse(line); const out = e.out || ''; total++;
+            for (const w of d.hotwords || []) if (out.includes(w)) freq[w] = (freq[w] || 0) + 1;
+          } catch {}
+        }
+      }
+      console.log(`历史 ${total} 条，热词命中：`);
+      for (const [w, c] of Object.entries(freq).sort((a, b) => b[1] - a[1])) console.log(`  ${w}: ${c} 次`);
+      const unused = (d.hotwords || []).filter(w => !freq[w]);
+      if (unused.length) console.log(`从未命中：${unused.join('、')}`);
+    } else console.log(JSON.stringify(d, null, 2));
   }
   else if (cmd === 'history') {
     ensureInit();

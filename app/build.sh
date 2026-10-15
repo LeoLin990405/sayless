@@ -7,6 +7,8 @@ rm -rf SaylessBar.app
 mkdir -p SaylessBar.app/Contents/MacOS
 swiftc -O SaylessBar.swift -o SaylessBar.app/Contents/MacOS/SaylessBar 2>&1 | grep -E 'error' && { echo BUILD_FAILED; exit 1; } || true
 cp Info.plist SaylessBar.app/Contents/
+mkdir -p SaylessBar.app/Contents/Resources
+cp hub.html SaylessBar.app/Contents/Resources/
 codesign --force -s - SaylessBar.app
 DEST="${1:-/Applications/SaylessBar.app}"
 rm -rf "$DEST"

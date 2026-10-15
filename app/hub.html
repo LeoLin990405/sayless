@@ -84,12 +84,29 @@ ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
   </div>
   <div class="tab __VT2__" id="t2">
     <h1 style="font-size:28px">词典</h1>
-    <h2 class="sec">确定性替换（编辑 ~/.sayless/dictionary.json 生效）</h2>
-    <table><tr><td><b>来源</b></td><td></td><td><b>目标</b></td></tr>__DICTROWS__</table>
-    <h2 class="sec">专有名词热词</h2>
-    <div>__HOTCHIPS__</div>
-    <h2 class="sec">风格规则</h2>
+    <h2 class="sec">词频（历史命中）</h2>
+    <div>__WORDSTATS__</div>
+    <h2 class="sec">确定性替换 <span style="font-size:12px;color:#999">点 ✕ 删除</span></h2>
+    <table>
+      <tr><td><b>来源</b></td><td></td><td><b>目标</b></td><td></td></tr>
+      __DICTROWS_EDIT__
+    </table>
+    <div style="margin-top:10px;display:flex;gap:8px">
+      <input id="rf" placeholder="原词" style="background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:6px;padding:6px 10px">
+      <input id="rt" placeholder="替换为" style="background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:6px;padding:6px 10px">
+      <button onclick="dictPost({action:'addReplace',from:document.getElementById('rf').value,to:document.getElementById('rt').value})" style="background:#2563eb;color:#fff;border:0;border-radius:6px;padding:6px 14px">添加替换</button>
+    </div>
+    <h2 class="sec">专有名词热词 <span style="font-size:12px;color:#999">点 ✕ 删除</span></h2>
+    <div>__HOTCHIPS_EDIT__</div>
+    <div style="margin-top:8px;display:flex;gap:8px">
+      <input id="hw" placeholder="新热词" style="background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:6px;padding:6px 10px">
+      <button onclick="dictPost({action:'addHot',word:document.getElementById('hw').value})" style="background:#2563eb;color:#fff;border:0;border-radius:6px;padding:6px 14px">添加热词</button>
+    </div>
+    <h2 class="sec">按应用分层 <span style="font-size:12px;color:#999">热键按下时按前台应用自动叠加对应词层</span></h2>
+    __APPLAYERS__
+    <h2 class="sec">风格规则（全局，注入润色 prompt）</h2>
     <ul>__RULES__</ul>
+    <p style="font-size:12px;color:#888;margin-top:16px">所有修改即时写入 ~/.sayless/dictionary.json；分应用词层在 dictionary.json 的 "apps" 里配置。</p>
   </div>
 </div>
 <div class="right">
@@ -106,6 +123,7 @@ ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
   <div class="grad p"><div class="t">自己的套餐</div><div class="d">润色与翻译走你的方舟 / 智谱 / DeepSeek / MiniMax 套餐。</div></div>
 </div>
 <script>
+function dictPost(obj){ window.webkit.messageHandlers.dict.postMessage(JSON.stringify(obj)); }
 function go(i, el){
   document.querySelectorAll('.tab').forEach((t,idx)=>t.classList.toggle('on', idx===i));
   document.querySelectorAll('.nav a').forEach(a=>a.classList.remove('on'));
