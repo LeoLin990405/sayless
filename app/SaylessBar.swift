@@ -655,8 +655,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if AXIsProcessTrusted() {
             logLine("AX trusted")
             installCGEventTap()
-        } else {
-            logLine("AX NOT trusted，弹系统授权框")
+            return
+        }
+        logLine("AX NOT trusted")
+        installCGEventTap() // 未授权时创建失败，但保留重试入口
+        let flag = NSHomeDirectory() + "/.sayless/.ax-prompted"
+        if !FileManager.default.fileExists(atPath: flag) {
+            // 仅首次弹系统授权框，之后永不自动弹
+            try? "".write(toFile: flag, atomically: true, encoding: .utf8)
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(opts)
         }
