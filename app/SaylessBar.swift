@@ -144,35 +144,96 @@ func fourCC(_ s: String) -> FourCharCode {
     return v
 }
 
-// ---------- 麦克风电平表（仅测 RMS，录音文件仍由 ffmpeg 写） ----------
-final class AudioMeter {
+// ---------- 录音器：AVAudioEngine 直录（~100ms 启动，无 ffmpeg 延迟）+ 电平表 ----------
+final class AudioRecorder {
     private let engine = AVAudioEngine()
-    private var onLevel: ((Float) -> Void)?
+    private var onData: ((Float) -> Void)?
+    private var converter: AVAudioConverter?
+    private var pcm = Data()
+    private var peak: Float = 0
+    private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
+    var lastPeak: Float { peak }
+
     func start(onLevel: @escaping (Float) -> Void) {
-        self.onLevel = onLevel
+        self.onData = onLevel
+        pcm = Data()
+        peak = 0
         let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
+        let inputFormat = input.outputFormat(forBus: 0)
+        converter = AVAudioConverter(from: inputFormat, to: targetFormat)
         input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
-            guard let self, let ch = buffer.floatChannelData?[0] else { return }
-            let n = Int(buffer.frameLength)
-            guard n > 0 else { return }
-            var sum: Float = 0
-            for i in stride(from: 0, to: n, by: 4) { let v = ch[i]; sum += v * v }
-            let rms = sqrt(sum / Float(n / 4))
-            let db = 20 * log10(max(rms, 1e-6))
-            let level = min(1, max(0, (db + 50) / 45)) // -50dB..+5dB 归一
-            DispatchQueue.main.async { self.onLevel?(level) }
+        input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+            guard let self, let conv = self.converter else { return }
+            if let ch = buffer.floatChannelData?[0] {
+                let n = Int(buffer.frameLength)
+                if n > 0 {
+                    var sum: Float = 0
+                    for i in stride(from: 0, to: n, by: 4) {
+                        let v = ch[i]
+                        sum += v * v
+                    }
+                    let rms = sqrt(sum / Float(n / 4))
+                    let db = 20 * log10(max(rms, 1e-6))
+                    let level = min(1, max(0, (db + 50) / 45)) // -50dB..+5dB
+                    DispatchQueue.main.async { self.onData?(level) }
+                    if level > self.peak { self.peak = level }
+                }
+            }
+            let ratio = self.targetFormat.sampleRate / inputFormat.sampleRate
+            let cap = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
+            if let out = AVAudioPCMBuffer(pcmFormat: self.targetFormat, frameCapacity: cap) {
+                var err: NSError?
+                var fed = false
+                let st = conv.convert(to: out, error: &err) { _, st in
+                    if fed {
+                        st.pointee = .noDataNow
+                        return nil
+                    }
+                    fed = true
+                    st.pointee = .haveData
+                    return buffer
+                }
+                if err == nil && st != .error, let ch = out.int16ChannelData?[0] {
+                    self.pcm.append(Data(bytes: ch, count: Int(out.frameLength) * 2))
+                }
+            }
         }
-        do { try engine.start() } catch { logLine("meter start fail: \(error.localizedDescription)") }
+        do {
+            try engine.start()
+        } catch {
+            logLine("recorder start fail: \(error.localizedDescription)")
+        }
     }
-    func stop() {
+
+    /// stop and write PCM as 16k mono WAV; returns (peak, ok)
+    func stopWrite(to url: URL) -> (peak: Float, ok: Bool) {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        let data = pcm
+        pcm = Data()
+        guard data.count > 3200 else { return (peak, false) } // <0.1s invalid
+        var wav = Data()
+        let dt = UInt32(data.count)
+        func le32(_ v: UInt32) -> Data { withUnsafeBytes(of: v.littleEndian) { Data($0) } }
+        func le16(_ v: UInt16) -> Data { withUnsafeBytes(of: v.littleEndian) { Data($0) } }
+        wav.append("RIFF".data(using: .ascii)!)
+        wav.append(le32(36 + dt))
+        wav.append("WAVE".data(using: .ascii)!)
+        wav.append("fmt ".data(using: .ascii)!)
+        wav.append(le32(16))
+        wav.append(le16(1))
+        wav.append(le16(1))
+        wav.append(le32(16000))
+        wav.append(le32(32000))
+        wav.append(le16(2))
+        wav.append(le16(16))
+        wav.append("data".data(using: .ascii)!)
+        wav.append(le32(dt))
+        wav.append(data)
+        try? wav.write(to: url)
+        return (peak, true)
     }
 }
-
-// ---------- 录音胶囊浮窗 ----------
 final class CapsulePanel {
     private var panel: NSPanel?
     private var dot: NSView!
@@ -525,7 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var pendingMode = 0 // 0=听写 1=翻译 2=问答
     let capsule = CapsulePanel()
     let hub = HubWindow()
-    let meter = AudioMeter()
+    let recorder = AudioRecorder()
     let ffmpegPath = "/opt/homebrew/bin/ffmpeg"
     let saylessPath = "/opt/homebrew/bin/sayless"
     var wavPath: String { NSHomeDirectory() + "/.sayless/last-utterance.wav" }
@@ -643,39 +704,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 
     func startRecording() {
-        guard FileManager.default.fileExists(atPath: ffmpegPath) else { notify("找不到 ffmpeg", ffmpegPath); capsule.hide(); return }
         busy = true
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: ffmpegPath)
-        p.arguments = ["-f", "avfoundation", "-i", ":0", "-ar", "16000", "-ac", "1", "-y", wavPath]
-        p.environment = childEnv
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        ffmpeg = p
-        meter.start { [weak self] lvl in self?.capsule.setLevel(lvl) }
-        do { try p.run(); logLine("recording start mode=\(pendingMode)") } catch {
-            meter.stop(); busy = false; capsule.hide(); notify("录音启动失败", error.localizedDescription)
-        }
+        recorder.start { [weak self] lvl in self?.capsule.setLevel(lvl) }
+        logLine("recording start mode=\(pendingMode)")
     }
 
     func stopAndTranscribe() {
-        guard let p = ffmpeg, p.isRunning else { busy = false; capsule.hide(); return }
         capsule.setProcessing()
-        meter.stop()
         DispatchQueue.global().async { [weak self] in
-            p.interrupt()
-            p.waitUntilExit()
-            DispatchQueue.main.async { self?.ffmpeg = nil; self?.transcribe(insert: true) }
+            guard let self else { return }
+            let (pk, ok) = self.recorder.stopWrite(to: URL(fileURLWithPath: self.wavPath))
+            DispatchQueue.main.async {
+                if !ok || pk < 0.05 {
+                    self.busy = false
+                    self.capsule.setResult(text: "未检测到语音（音量过低）", ok: false, inserted: false)
+                    logLine("no speech, peak=\(pk)")
+                    return
+                }
+                logLine("recording peak=\(pk)")
+                self.transcribe(insert: true, force: true)
+            }
         }
     }
 
-    func transcribe(insert: Bool, mode: Int? = nil) {
+    func transcribe(insert: Bool, mode: Int? = nil, force: Bool = false) {
         let m = mode ?? pendingMode
         pendingMode = 0
         var args = [saylessPath, "transcribe", wavPath]
         if m == 1 { args += ["--translate"] }
         if m == 2 { args += ["--ask"] }
         if !insert { args += ["--no-insert"] }
+        if force { args += ["--force"] }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")
         p.arguments = args
