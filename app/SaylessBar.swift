@@ -4,6 +4,7 @@ import AppKit
 import Carbon.HIToolbox
 import AVFoundation
 import WebKit
+import ApplicationServices
 
 private let hubTemplate = """
 <!doctype html><html><head><meta charset="utf-8"><style>
@@ -551,7 +552,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for item in menu.items { item.target = self }
         statusItem.menu = menu
         registerHotkeys()
-        logLine("launched v3")
+        checkAX()
+        logLine("launched v4")
+    }
+
+    func checkAX() {
+        if AXIsProcessTrusted() {
+            logLine("AX trusted")
+            installCGEventTap()
+        } else {
+            logLine("AX NOT trusted，弹系统授权框")
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(opts)
+        }
+    }
+
+    static var lastFire = Date.distantPast
+    func hotkey(_ id: Int) {
+        let now = Date()
+        guard now.timeIntervalSince(AppDelegate.lastFire) > 0.25 else { return }
+        AppDelegate.lastFire = now
+        if busy { stopAndTranscribe(); return }
+        pendingMode = id
+        capsule.show(mode: id)
+        startRecording()
+    }
+
+    var tapPort: CFMachPort?
+    var tapSource: CFRunLoopSource?
+    func installCGEventTap() {
+        let mask = (1 << CGEventType.keyDown.rawValue)
+        let cb: CGEventTapCallBack = { _, type, event, _ in
+            if type == .keyDown {
+                let code = event.getIntegerValueField(.keyboardEventKeycode)
+                let opt = event.flags.contains(CGEventFlags.maskAlternate)
+                if opt {
+                    let id: Int? = code == 49 ? 0 : (code == 17 ? 1 : (code == 12 ? 2 : nil))
+                    if let id { DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.hotkey(id) } }
+                }
+            }
+            return Unmanaged.passUnretained(event)
+        }
+        guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+                                           options: .listenOnly, eventsOfInterest: CGEventMask(mask),
+                                           callback: cb, userInfo: nil) else {
+            logLine("CGEventTap 未创建（待辅助功能授权），Carbon 兜底中")
+            return
+        }
+        tapPort = port
+        CGEvent.tapEnable(tap: port, enable: true)
+        tapSource = CFMachPortCreateRunLoopSource(nil, port, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), tapSource, .defaultMode)
+        logLine("CGEventTap 已启用（热键走 tap，先于输入法拦截）")
     }
 
     func registerHotkeys() {
@@ -570,6 +622,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             var ref: EventHotKeyRef?
             RegisterEventHotKey(keyCode, UInt32(optionKey), EventHotKeyID(signature: fourCC("sayl"), id: UInt32(id)), GetApplicationEventTarget(), 0, &ref)
         }
+        Timer.scheduledTimer(withTimeInterval: 8, repeats: true) { [weak self] t in
+            guard let self, self.tapPort == nil else { t.invalidate(); return }
+            if AXIsProcessTrusted() { logLine("AX trusted（授权翻转）"); self.installCGEventTap(); t.invalidate() }
+        }
     }
 
     @objc func toggle() { hotkey(0) }
@@ -581,16 +637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openDict() { NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory() + "/.sayless/dictionary.json")) }
     @objc func openLog() { NSWorkspace.shared.open(URL(fileURLWithPath: logPath)) }
 
-    static var lastFire = Date.distantPast
-    func hotkey(_ id: Int) {
-        let now = Date()
-        guard now.timeIntervalSince(AppDelegate.lastFire) > 0.25 else { return }
-        AppDelegate.lastFire = now
-        if busy { stopAndTranscribe(); return }
-        pendingMode = id
-        capsule.show(mode: id)
-        startRecording()
-    }
+
 
     func startRecording() {
         guard FileManager.default.fileExists(atPath: ffmpegPath) else { notify("找不到 ffmpeg", ffmpegPath); capsule.hide(); return }
