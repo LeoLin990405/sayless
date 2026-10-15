@@ -122,67 +122,56 @@ final class AudioRecorder {
 }
 final class CapsulePanel {
     private var panel: NSPanel?
-    private var logoLabel: NSTextField!
-    private var langBadge: NSTextField!
-    private var waveIcon: NSImageView!
-    private var hintLabel: NSTextField!
-    private var micPill: NSView!
-    private var micIcon: NSImageView!
-    private var sendPill: NSTextField!
-    private var statusLabel: NSTextField!
-    private var previewLabel: NSTextField!
-    private var spinner: NSProgressIndicator!
+    private var xButton: NSButton!
+    private var checkButton: NSButton!
+    private var bars: [NSView] = []
+    private var barContainer: NSView!
+    private var thinkingLabel: NSTextField!
+    private var level: Float = 0
     private var tick: Timer?
     private var startDate = Date()
     private var hideWork: DispatchWorkItem?
-    private var hubTemplate = ""
 
     func show(mode: Int) {
-        let names = ["轻触说话", "说完自动翻译", "问任何问题"]
         ensurePanel()
-        hintLabel.stringValue = names[mode]
-        statusLabel.stringValue = ""
-        statusLabel.textColor = NSColor.secondaryLabelColor
-        previewLabel.stringValue = ""
-        previewLabel.isHidden = true
-        spinner.stopAnimation(nil); spinner.isHidden = true
-        micPill.isHidden = false
-        micIcon.isHidden = false
+        setRecordingUI()
         startDate = Date()
         tick?.invalidate()
         tick = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
             guard let self else { return }
             let el = Date().timeIntervalSince(self.startDate)
-            self.timeTick(el)
+            // 波形条随电平呼吸
+            let base: CGFloat = 6
+            let amp = CGFloat(self.levelSmooth) * 22
+            for (i, b) in self.bars.enumerated() {
+                let phase = sin(el * 6 + Double(i)) * 0.5 + 0.5
+                let h = base + amp * (0.5 + 0.5 * CGFloat(phase))
+                b.animator().frame = NSRect(x: b.frame.origin.x, y: (28 - h) / 2, width: 3.5, height: max(4, h))
+            }
         }
         panel?.orderFrontRegardless()
     }
-    private var timeLabel: NSTextField!
-    private func timeTick(_ elapsed: TimeInterval) {
-        timeLabel.stringValue = String(format: "%.1fs", elapsed)
-        let a = 0.55 + 0.45 * abs(sin(elapsed * 3.2))
-        micPill.layer?.backgroundColor = NSColor.black.withAlphaComponent(a == 1 ? 1 : (0.82 + 0.18 * a - 0.18)).cgColor
-    }
+    private var levelSmooth: Float = 0
     func setLevel(_ l: Float) {
-        DispatchQueue.main.async {
-            self.micPill.layer?.transform = CATransform3DMakeScale(CGFloat(1 + l * 0.06), CGFloat(1 + l * 0.10), 1)
-        }
+        levelSmooth = levelSmooth * 0.7 + l * 0.3
     }
     func setProcessing() {
         tick?.invalidate()
-        statusLabel.stringValue = "识别润色中…"
-        micIcon.isHidden = true
-        spinner.isHidden = false; spinner.startAnimation(nil)
+        xButton.isHidden = true
+        checkButton.isHidden = true
+        barContainer.isHidden = true
+        thinkingLabel.isHidden = false
     }
     func setResult(text: String, ok: Bool, inserted: Bool) {
         tick?.invalidate()
-        spinner.stopAnimation(nil); spinner.isHidden = true
-        micPill.isHidden = true; micIcon.isHidden = true
-        statusLabel.stringValue = ok ? (inserted ? "✓ 已粘贴" : "✓ 完成") : "✗ 失败"
-        statusLabel.textColor = ok ? NSColor.systemGreen : NSColor.systemRed
-        previewLabel.stringValue = String(text.prefix(120))
-        previewLabel.isHidden = text.isEmpty
-        hideAfter(3.5)
+        // Typeless 行为：文本直接落在光标处，浮条收起。错误才停留提示。
+        if ok {
+            hide()
+        } else {
+            thinkingLabel.stringValue = "✗ \(text.prefix(60))"
+            thinkingLabel.font = NSFont.systemFont(ofSize: 13)
+            hideAfter(3.5)
+        }
     }
     func hide() {
         tick?.invalidate()
@@ -194,13 +183,32 @@ final class CapsulePanel {
         hideWork = w
         DispatchQueue.main.asyncAfter(deadline: .now() + sec, execute: w)
     }
+    private func setRecordingUI() {
+        xButton.isHidden = false
+        checkButton.isHidden = false
+        barContainer.isHidden = false
+        thinkingLabel.isHidden = true
+        thinkingLabel.stringValue = "Thinking"
+        thinkingLabel.font = NSFont.systemFont(ofSize: 15, weight: .medium)
+        thinkingLabel.textColor = NSColor(white: 0.62, alpha: 1)
+    }
+    private func circleButton(_ title: String, _ x: CGFloat) -> NSButton {
+        let btn = NSButton(frame: NSRect(x: x, y: 13, width: 38, height: 38))
+        btn.wantsLayer = true
+        btn.layer?.cornerRadius = 19
+        btn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 1).cgColor
+        btn.isBordered = false
+        btn.title = title
+        btn.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        btn.contentTintColor = NSColor.white
+        return btn
+    }
     private func ensurePanel() {
         if panel != nil {
-            micPill.isHidden = false; micIcon.isHidden = false
-            statusLabel.textColor = NSColor.secondaryLabelColor
+            setRecordingUI()
             return
         }
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 380, height: 150),
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 64),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.level = .floating
@@ -209,111 +217,61 @@ final class CapsulePanel {
         p.backgroundColor = .clear
         p.hasShadow = true
 
-        let fx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 380, height: 150))
-        fx.material = .headerView  // 暖白磨砂
+        let fx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 280, height: 64))
+        fx.material = .underWindowBackground
         fx.blendingMode = .behindWindow
         fx.state = .active
-        fx.appearance = NSAppearance(named: .aqua)
+        fx.appearance = NSAppearance(named: .darkAqua)
         fx.wantsLayer = true
-        fx.layer?.cornerRadius = 24
+        fx.layer?.cornerRadius = 32
         fx.layer?.masksToBounds = true
+        fx.layer?.backgroundColor = NSColor(calibratedWhite: 0.07, alpha: 0.96).cgColor
 
-        logoLabel = NSTextField(labelWithString: "Sayless")
-        logoLabel.font = NSFont.systemFont(ofSize: 13, weight: .bold)
-        logoLabel.textColor = NSColor(calibratedWhite: 0.15, alpha: 1)
-        logoLabel.frame = NSRect(x: 16, y: 122, width: 80, height: 18)
+        xButton = circleButton("✕", 14)
+        xButton.target = self
+        xButton.action = #selector(xClicked)
 
-        waveIcon = NSImageView(frame: NSRect(x: 268, y: 122, width: 16, height: 16))
-        waveIcon.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "waveform")?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .medium))
-        waveIcon.contentTintColor = NSColor(calibratedWhite: 0.25, alpha: 1)
+        barContainer = NSView(frame: NSRect(x: 96, y: 14, width: 88, height: 36))
+        let bw: CGFloat = 3.5, gap: CGFloat = 5
+        var bx: CGFloat = 0
+        for _ in 0..<9 {
+            let bar = NSView(frame: NSRect(x: bx, y: 11, width: bw, height: 14))
+            bar.wantsLayer = true
+            bar.layer?.cornerRadius = 1.75
+            bar.layer?.backgroundColor = NSColor.white.cgColor
+            barContainer.addSubview(bar)
+            bars.append(bar)
+            bx += bw + gap
+        }
+        barContainer.wantsLayer = true
 
-        langBadge = NSTextField(labelWithString: "中文")
-        langBadge.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        langBadge.textColor = NSColor.secondaryLabelColor
-        langBadge.frame = NSRect(x: 288, y: 122, width: 30, height: 16)
+        checkButton = circleButton("✓", 228)
+        checkButton.target = self
+        checkButton.action = #selector(checkClicked)
 
-        let gear = NSImageView(frame: NSRect(x: 348, y: 122, width: 14, height: 16))
-        gear.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "settings")?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .regular))
-        gear.contentTintColor = NSColor.secondaryLabelColor
+        thinkingLabel = NSTextField(labelWithString: "Thinking")
+        thinkingLabel.font = NSFont.systemFont(ofSize: 15, weight: .medium)
+        thinkingLabel.textColor = NSColor(white: 0.62, alpha: 1)
+        thinkingLabel.alignment = .center
+        thinkingLabel.frame = NSRect(x: 0, y: 14, width: 280, height: 36)
+        thinkingLabel.isHidden = true
 
-        hintLabel = NSTextField(labelWithString: "轻触说话")
-        hintLabel.font = NSFont.systemFont(ofSize: 12)
-        hintLabel.textColor = NSColor.secondaryLabelColor
-        hintLabel.alignment = .center
-        hintLabel.frame = NSRect(x: 90, y: 96, width: 200, height: 16)
-
-        timeLabel = NSTextField(labelWithString: "0.0s")
-        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        timeLabel.textColor = NSColor.tertiaryLabelColor
-        timeLabel.alignment = .center
-        timeLabel.frame = NSRect(x: 90, y: 112, width: 200, height: 14)
-
-        micPill = NSView(frame: NSRect(x: 158, y: 48, width: 64, height: 36))
-        micPill.wantsLayer = true
-        micPill.layer?.cornerRadius = 18
-        micPill.layer?.backgroundColor = NSColor.black.cgColor
-
-        micIcon = NSImageView(frame: NSRect(x: 178, y: 57, width: 24, height: 18))
-        micIcon.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "mic")?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .medium))
-        micIcon.contentTintColor = NSColor.white
-
-        sendPill = NSTextField(labelWithString: "send")
-        sendPill.font = NSFont.systemFont(ofSize: 12)
-        sendPill.textColor = NSColor.secondaryLabelColor
-        sendPill.alignment = .center
-        sendPill.wantsLayer = true
-        sendPill.layer?.cornerRadius = 12
-        sendPill.layer?.borderColor = NSColor.separatorColor.cgColor
-        sendPill.layer?.borderWidth = 1
-        sendPill.frame = NSRect(x: 150, y: 14, width: 80, height: 22)
-
-        spinner = NSProgressIndicator(frame: NSRect(x: 176, y: 54, width: 28, height: 24))
-        spinner.style = .spinning
-        spinner.isHidden = true
-
-        statusLabel = NSTextField(labelWithString: "")
-        statusLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        statusLabel.textColor = NSColor.secondaryLabelColor
-        statusLabel.alignment = .center
-        statusLabel.frame = NSRect(x: 40, y: 40, width: 300, height: 18)
-
-        previewLabel = NSTextField(labelWithString: "")
-        previewLabel.font = NSFont.systemFont(ofSize: 12)
-        previewLabel.textColor = NSColor.labelColor
-        previewLabel.alignment = .center
-        previewLabel.lineBreakMode = .byTruncatingMiddle
-        previewLabel.cell?.truncatesLastVisibleLine = true
-        previewLabel.maximumNumberOfLines = 2
-        previewLabel.frame = NSRect(x: 30, y: 14, width: 320, height: 34)
-        previewLabel.isHidden = true
-
-        fx.addSubview(logoLabel)
-        fx.addSubview(waveIcon)
-        fx.addSubview(langBadge)
-        fx.addSubview(gear)
-        fx.addSubview(timeLabel)
-        fx.addSubview(hintLabel)
-        fx.addSubview(micPill)
-        fx.addSubview(micIcon)
-        fx.addSubview(sendPill)
-        fx.addSubview(spinner)
-        fx.addSubview(statusLabel)
-        fx.addSubview(previewLabel)
+        fx.addSubview(barContainer)
+        fx.addSubview(xButton)
+        fx.addSubview(checkButton)
+        fx.addSubview(thinkingLabel)
         p.contentView = fx
         if let screen = NSScreen.main {
             let f = screen.frame
-            p.setFrameOrigin(NSPoint(x: f.midX - 190, y: f.origin.y + 110))
+            p.setFrameOrigin(NSPoint(x: f.midX - 140, y: f.origin.y + 120))
         }
         panel = p
     }
+    @objc func xClicked() { (NSApp.delegate as? AppDelegate)?.cancelRecording() }
+    @objc func checkClicked() { (NSApp.delegate as? AppDelegate)?.stopFromUI() }
 }
 
 
-// ---------- 主面板（Typeless Hub 1:1） ----------
-// 不可成为 key window：防止 WKWebView 吞掉键盘事件导致 Carbon 全局热键失效（鼠标操作不受影响）
 final class NonKeyWindow: NSWindow {
     override var canBecomeKey: Bool { false }
 }
@@ -637,6 +595,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(opts)
         }
+    }
+    @objc func stopFromUI() {
+        guard busy else { return }
+        stopAndTranscribe()
     }
     @objc func forceStop() {
         recorder.stopWrite(to: URL(fileURLWithPath: wavPath))
