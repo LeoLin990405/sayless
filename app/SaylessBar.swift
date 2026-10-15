@@ -5,124 +5,10 @@ import Carbon.HIToolbox
 import AVFoundation
 import WebKit
 import ApplicationServices
+import ServiceManagement
+import ApplicationServices
 
-private let hubTemplate = """
-<!doctype html><html><head><meta charset="utf-8"><style>
-:root{--bg:#1f1f1f;--card:#3c3b3b;--txt:#f0eeec;--sub:#b9b8b8;--accent:#5b9bd5}
-*{margin:0;box-sizing:border-box;font-family:-apple-system,"PingFang SC",sans-serif}
-body{display:flex;height:100vh;background:var(--bg);color:var(--txt);overflow:hidden}
-.side{width:240px;background:#302e2e;padding:22px 14px;display:flex;flex-direction:column;flex-shrink:0}
-.logo{font-size:20px;font-weight:800;display:flex;gap:8px;align-items:center;padding:6px 12px 26px}
-.badge{background:#2563eb;color:#fff;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700}
-.nav{display:flex;flex-direction:column;gap:4px}
-.nav a{display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;color:var(--sub);text-decoration:none;font-size:14px;cursor:pointer}
-.nav a.on{background:#3a3838;color:var(--txt)}
-.nav a:hover{color:var(--txt)}
-.spacer{flex:1}
-.foot{display:flex;gap:14px;padding:10px 12px;color:var(--sub);font-size:16px}
-.main{flex:1;overflow:auto;padding:34px 40px;background-image:radial-gradient(#2a2929 1px,transparent 1px);background-size:22px 22px}
-h1{font-size:40px;font-weight:800;letter-spacing:1px;margin-bottom:6px}
-h2.sec{font-size:19px;color:var(--sub);font-weight:700;margin:28px 0 14px}
-.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:560px}
-.card{background:var(--card);border-radius:16px;padding:20px;min-height:92px}
-.card .v{font-size:22px;font-weight:700}
-.card .k{font-size:14px;color:var(--sub);margin-top:10px}
-.heatcard{background:#141313;border-radius:16px;padding:22px;max-width:560px;margin-top:16px}
-.hstats{display:grid;grid-template-columns:1fr 1fr 1fr;text-align:center;margin-bottom:16px}
-.hstats .v{font-size:18px;font-weight:700}
-.hstats .k{font-size:13px;color:var(--sub);margin-top:6px}
-.wk{display:flex;gap:3px;margin-bottom:3px}
-.wk i{width:11px;height:11px;border-radius:3px;background:#0d0d0d;display:block}
-.wk i.on{background:#3b82f6}
-.wkwrap{display:flex;gap:3px}
-.legend{display:flex;align-items:center;gap:4px;margin-top:12px;font-size:12px;color:var(--sub)}
-.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
-.row{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid #4a4848;font-size:13px;align-items:baseline}
-.row .ts{color:var(--sub);font-family:Menlo,monospace;font-size:11px;min-width:130px}
-.row .md{color:var(--accent);min-width:80px;font-weight:600}
-.right{width:250px;flex-shrink:0;padding:34px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto}
-.keys{background:var(--card);border-radius:16px;padding:16px}
-.keys .k{font-size:13px;color:var(--sub);margin:10px 0 4px}
-.keys .k:first-child{margin-top:0}
-kbd{display:inline-block;background:#4a4848;border:1px solid #5a5858;border-radius:6px;padding:3px 9px;font-size:12px;margin:2px;color:var(--txt)}
-.grad{border-radius:16px;padding:18px;color:#fff}
-.grad.b{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}
-.grad.p{background:linear-gradient(135deg,#4c1d95,#7c3aed)}
-.grad .t{font-size:15px;font-weight:700;margin-bottom:6px}
-.grad .d{font-size:12px;opacity:.85}
-table{width:100%;border-collapse:collapse;font-size:13px}
-td{padding:8px 6px;border-bottom:1px solid #1f1f1f;color:var(--txt)}
-ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
-.chip{display:inline-block;background:#4a4848;border:1px solid #5a5858;border-radius:7px;padding:4px 10px;margin:3px;font-size:12px}
-.tab{display:none}.tab.on{display:block}
-</style></head><body>
-<div class="side">
-  <div class="logo">Sayless <span class="badge">本地</span></div>
-  <div class="nav">
-    <a class="__T0__" onclick="go(0,this)">⌂&nbsp; 首页</a>
-    <a class="__T1__" onclick="go(1,this)">◷&nbsp; 历史记录</a>
-    <a class="__T2__" onclick="go(2,this)">▤&nbsp; 词典</a>
-  </div>
-  <div class="spacer"></div>
-  <div class="foot">◐&nbsp; ◯&nbsp; ⚙&nbsp; ?</div>
-</div>
-<div class="main">
-  <div class="tab __VT0__" id="t0">
-    <h1>说话，不要打字</h1>
-    <h2 class="sec">洞察</h2>
-    <div class="cards">
-      <div class="card"><div class="v">__STAT1__</div><div class="k">口述字数</div></div>
-      <div class="card"><div class="v">__STAT2__</div><div class="k">听写条数</div></div>
-      <div class="card"><div class="v">__STAT3__</div><div class="k">活跃天数</div></div>
-      <div class="card"><div class="v">__STAT4__</div><div class="k">当前连续天数</div></div>
-    </div>
-    <div class="heatcard">
-      <div class="hstats">
-        <div><div class="v">__STAT3__</div><div class="k">活跃天数</div></div>
-        <div><div class="v">__STAT4__</div><div class="k">当前连续天数</div></div>
-        <div><div class="v">__STAT4__</div><div class="k">最长连续天数</div></div>
-      </div>
-      <div class="wkwrap">__HEAT__</div>
-      <div class="legend">更少 <i style="background:#232323"></i><i style="background:#1e3a8a"></i><i style="background:#2563eb"></i><i style="background:#60a5fa"></i> 更多</div>
-    </div>
-  </div>
-  <div class="tab __VT1__" id="t1">
-    <h1 style="font-size:28px">历史记录</h1>
-    <h2 class="sec">最近 60 条</h2>
-    __HISTROWS__
-  </div>
-  <div class="tab __VT2__" id="t2">
-    <h1 style="font-size:28px">词典</h1>
-    <h2 class="sec">确定性替换（编辑 ~/.sayless/dictionary.json 生效）</h2>
-    <table><tr><td><b>来源</b></td><td></td><td><b>目标</b></td></tr>__DICTROWS__</table>
-    <h2 class="sec">专有名词热词</h2>
-    <div>__HOTCHIPS__</div>
-    <h2 class="sec">风格规则</h2>
-    <ul>__RULES__</ul>
-  </div>
-</div>
-<div class="right">
-  <div class="keys">
-    <div class="k">听写</div><kbd>⌥</kbd><kbd>Space</kbd>
-    <div class="k">翻译</div><kbd>⌥</kbd><kbd>T</kbd>
-    <div class="k">问任何问题</div><kbd>⌥</kbd><kbd>Q</kbd>
-  </div>
-  <div class="keys">
-    <div class="k">交叉加强</div><kbd>--cross</kbd>
-    <div style="font-size:12px;color:var(--sub);margin-top:6px">glm-5-turbo + deepseek-flash + MiniMax-M3 三家共识</div>
-  </div>
-  <div class="grad b"><div class="t">本地优先</div><div class="d">ASR 走本地 whisper.cpp，语音不出机器。</div></div>
-  <div class="grad p"><div class="t">自己的套餐</div><div class="d">润色与翻译走你的方舟 / 智谱 / DeepSeek / MiniMax 套餐。</div></div>
-</div>
-<script>
-function go(i, el){
-  document.querySelectorAll('.tab').forEach((t,idx)=>t.classList.toggle('on', idx===i));
-  document.querySelectorAll('.nav a').forEach(a=>a.classList.remove('on'));
-  (el||document.querySelectorAll('.nav a')[i]).classList.add('on');
-}
-</script>
-</body></html>
-"""
+
 
 let logPath = NSHomeDirectory() + "/.sayless/saylessbar.log"
 let histPath = NSHomeDirectory() + "/.sayless/history.jsonl"
@@ -487,6 +373,11 @@ final class HubWindow {
         NSApp.activate(ignoringOtherApps: true)
     }
     private func buildHubHTML(tab: Int = 0) -> String {
+        guard let tplPath = Bundle.main.path(forResource: "hub", ofType: "html")
+                           ?? Bundle.main.path(forResource: "hub", ofType: "html", inDirectory: "../Resources"),
+              let tpl = try? String(contentsOfFile: tplPath, encoding: .utf8) else {
+            return "<meta charset='utf-8'><body style='background:#1f1f1f;color:#bbb'>hub.html missing in bundle</body>"
+        }
         let histFile = NSHomeDirectory() + "/.sayless/history.jsonl"
         var entries: [[String: String]] = []
         var days: Set<String> = []
@@ -526,7 +417,7 @@ final class HubWindow {
             let out = (e["out"] ?? "").replacingOccurrences(of: "<", with: "&lt;")
             return "<div class='row'><span class='ts'>\(ts)</span><span class='md'>\(e["mode"] ?? "")</span><span class='ot'>\(out)</span></div>"
         }.joined()
-        var html = hubTemplate
+        var html = tpl
         html = html.replacingOccurrences(of: "__STAT1__", with: "\(totalChars)")
         html = html.replacingOccurrences(of: "__STAT2__", with: "\(entries.count)")
         html = html.replacingOccurrences(of: "__STAT3__", with: "\(days.count)")
@@ -584,6 +475,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var ffmpeg: Process?
     var busy = false
     var pendingMode = 0 // 0=听写 1=翻译 2=问答
+    var ptt = false        // 按住说话模式
+    var soundOn = true
+    var savedClipboard: String?
+    var stopWork: DispatchWorkItem?
     let capsule = CapsulePanel()
     let hub = HubWindow()
     let recorder = AudioRecorder()
@@ -605,7 +500,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "语音问答（⌥Q）", action: #selector(askToggle), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "打开主面板…", action: #selector(showHub), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "紧急停止录音", action: #selector(forceStop), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "请求辅助功能授权…", action: #selector(requestAX), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "登录时启动", action: #selector(toggleLoginItem), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "听写历史…", action: #selector(showHistoryTab), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "打开词语库…", action: #selector(openDict), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "查看日志…", action: #selector(openLog), keyEquivalent: ""))
@@ -613,9 +510,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "退出 SaylessBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items { item.target = self }
         statusItem.menu = menu
+        loadAppConfig()
         registerHotkeys()
         checkAX()
-        logLine("launched v4")
+        logLine("launched v4.1 ptt=\(ptt)")
+        if !ptt { } // toggle 模式默认
+    }
+
+    func loadAppConfig() {
+        let f = NSHomeDirectory() + "/.sayless/config.json"
+        if let raw = try? String(contentsOfFile: f, encoding: .utf8),
+           let d = raw.data(using: .utf8),
+           let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+            ptt = j["ptt"] as? Bool ?? false
+            soundOn = j["sound"] as? Bool ?? true
+        }
+    }
+    func beep(_ name: String) {
+        if soundOn { NSSound(named: name)?.play() }
+    }
+    /// 保存剪贴板 → 粘贴 → 1.6s 后恢复
+    func pasteText(_ text: String) {
+        let old = runTool("/usr/bin/pbpaste", [])
+        runTool("/usr/bin/pbcopy", [], input: text)
+        runTool("/usr/bin/osascript", ["-e", "tell application \"System Events\" to keystroke \"v\" using command down"])
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.6) {
+            if !old.isEmpty { self.runTool("/usr/bin/pbcopy", [], input: old) }
+        }
+    }
+    func runTool(_ path: String, _ args: [String], input: String? = nil) -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = args
+        p.environment = childEnv
+        if let input { p.standardInput = Pipe(); }
+        let outPipe = Pipe(); p.standardOutput = outPipe
+        do { try p.run() } catch { logLine("run \(path) fail: \(error.localizedDescription)"); return "" }
+        if let input { (p.standardInput as? Pipe)?.fileHandleForWriting.write(input.data(using: .utf8)!); (p.standardInput as? Pipe)?.fileHandleForWriting.closeFile() }
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     func checkAX() {
@@ -623,34 +557,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             logLine("AX trusted")
             installCGEventTap()
         } else {
-            logLine("AX NOT trusted（热键走 Carbon 兜底；粘贴与防输入法拦截需授权）")
+            logLine("AX NOT trusted，弹系统授权框")
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(opts)
         }
+    }
+    @objc func forceStop() {
+        recorder.stopWrite(to: URL(fileURLWithPath: wavPath))
+        busy = false
+        capsule.hide()
+        logLine("force stopped")
     }
 
     static var lastFire = Date.distantPast
-    func hotkey(_ id: Int) {
+    func hotkey(_ id: Int, keyUp: Bool = false) {
+        if ptt { // 按住说话：按下开始，松开结束
+            if keyUp { if busy { stopAndTranscribe() } }
+            else if !busy { pendingMode = id; capsule.show(mode: id); startRecording(); beep("Tink") }
+            return
+        }
         let now = Date()
         guard now.timeIntervalSince(AppDelegate.lastFire) > 0.25 else { return }
         AppDelegate.lastFire = now
-        if busy { stopAndTranscribe(); return }
+        if busy { stopAndTranscribe(); beep("Pop"); return }
         pendingMode = id
         capsule.show(mode: id)
         startRecording()
+        beep("Tink")
+    }
+    func cancelRecording() {
+        stopWork?.cancel()
+        busy = false
+        recorder.stopWrite(to: URL(fileURLWithPath: wavPath)) // 覆盖即丢弃
+        capsule.hide()
+        beep("Basso")
+        logLine("cancelled")
     }
 
     var tapPort: CFMachPort?
     var tapSource: CFRunLoopSource?
     func installCGEventTap() {
-        let mask = (1 << CGEventType.keyDown.rawValue)
+        let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
+                   | (1 << CGEventType.tapDisabledByTimeout.rawValue)
         let cb: CGEventTapCallBack = { _, type, event, _ in
-            if type == .keyDown {
-                let code = event.getIntegerValueField(.keyboardEventKeycode)
-                let opt = event.flags.contains(CGEventFlags.maskAlternate)
-                if opt {
-                    let id: Int? = code == 49 ? 0 : (code == 17 ? 1 : (code == 12 ? 2 : nil))
-                    if let id { DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.hotkey(id) } }
-                }
+            guard let app = NSApp.delegate as? AppDelegate else { return Unmanaged.passUnretained(event) }
+            if type == .tapDisabledByTimeout {
+                if let port = app.tapPort { CGEvent.tapEnable(tap: port, enable: true) }
+                return Unmanaged.passUnretained(event)
             }
+            let code = event.getIntegerValueField(.keyboardEventKeycode)
+            let isUp = type == .keyUp
+            if code == 53 && app.busy { // Esc 取消录音
+                DispatchQueue.main.async { app.cancelRecording() }
+                return Unmanaged.passUnretained(event)
+            }
+            let opt = event.flags.contains(CGEventFlags.maskAlternate)
+            guard opt else { return Unmanaged.passUnretained(event) }
+            let id: Int? = code == 49 ? 0 : (code == 17 ? 1 : (code == 12 ? 2 : nil))
+            if let id { DispatchQueue.main.async { app.hotkey(id, keyUp: isUp) } }
             return Unmanaged.passUnretained(event)
         }
         guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
@@ -692,6 +656,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func translateToggle() { hotkey(1) }
     @objc func askToggle() { hotkey(2) }
     @objc func transcribeOnly() { if !busy { transcribe(insert: false, mode: 0) } }
+    @objc func toggleLoginItem() {
+        do { try SMAppService.mainApp.register() } catch {
+            logLine("login item: \(error.localizedDescription)")
+            do { try SMAppService.mainApp.unregister() } catch {}
+        }
+    }
     @objc func showHub() { hub.show(tab: 0) }
     @objc func requestAX() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
@@ -707,10 +677,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         busy = true
         recorder.start { [weak self] lvl in self?.capsule.setLevel(lvl) }
         logLine("recording start mode=\(pendingMode)")
+        stopWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self, self.busy else { return }
+            logLine("max duration reached, auto stop")
+            self.stopAndTranscribe()
+        }
+        stopWork = w
+        DispatchQueue.global().asyncAfter(deadline: .now() + 90, execute: w)
     }
 
     func stopAndTranscribe() {
         capsule.setProcessing()
+        stopWork?.cancel()
         DispatchQueue.global().async { [weak self] in
             guard let self else { return }
             let (pk, ok) = self.recorder.stopWrite(to: URL(fileURLWithPath: self.wavPath))
@@ -730,10 +709,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func transcribe(insert: Bool, mode: Int? = nil, force: Bool = false) {
         let m = mode ?? pendingMode
         pendingMode = 0
-        var args = [saylessPath, "transcribe", wavPath]
+        var args = [saylessPath, "transcribe", wavPath, "--no-insert"]
         if m == 1 { args += ["--translate"] }
         if m == 2 { args += ["--ask"] }
-        if !insert { args += ["--no-insert"] }
         if force { args += ["--force"] }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/node")
@@ -752,10 +730,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let finalText = errText.split(separator: "\n")
                         .first(where: { $0.hasPrefix("结果: ") })
                         .map { String($0.dropFirst("结果: ".count)) } ?? ""
-                    self.capsule.setResult(text: finalText, ok: true, inserted: insert)
+                    if insert && !finalText.isEmpty { self.pasteText(finalText) }
+                    self.capsule.setResult(text: finalText, ok: true, inserted: insert && !finalText.isEmpty)
+                    self.beep("Pop")
                     logLine("ok mode=\(m) text=\(finalText.prefix(80))")
                 } else {
                     self.capsule.setResult(text: String(errText.suffix(160)), ok: false, inserted: false)
+                    self.beep("Basso")
                     self.notify("听写失败（exit \(proc.terminationStatus)）", String(errText.suffix(160)))
                     logLine("failed: \(errText.suffix(160))")
                 }
