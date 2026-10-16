@@ -128,32 +128,26 @@ final class CapsulePanel {
     private var barContainer: NSView!
     private var thinkingLabel: NSTextField!
     private var level: Float = 0
+    private var levelSmooth: Float = 0
     private var tick: Timer?
-    private var startDate = Date()
     private var hideWork: DispatchWorkItem?
 
     func show(mode: Int) {
         ensurePanel()
         setRecordingUI()
-        startDate = Date()
         tick?.invalidate()
-        tick = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+        tick = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let el = Date().timeIntervalSince(self.startDate)
-            // 波形条随电平呼吸
-            let base: CGFloat = 6
-            let amp = CGFloat(self.levelSmooth) * 22
             for (i, b) in self.bars.enumerated() {
-                let phase = sin(el * 6 + Double(i)) * 0.5 + 0.5
-                let h = base + amp * (0.5 + 0.5 * CGFloat(phase))
-                b.animator().frame = NSRect(x: b.frame.origin.x, y: (28 - h) / 2, width: 3.5, height: max(4, h))
+                let phase = sin(Date().timeIntervalSince1970 * 7 + Double(i) * 0.9)
+                let h = 8 + CGFloat(self.levelSmooth) * 18 * CGFloat(0.4 + 0.6 * abs(phase)) + CGFloat(abs(phase)) * 4
+                b.animator().frame = NSRect(x: b.frame.origin.x, y: (24 - h) / 2, width: 3, height: max(3, h))
             }
         }
         panel?.orderFrontRegardless()
     }
-    private var levelSmooth: Float = 0
     func setLevel(_ l: Float) {
-        levelSmooth = levelSmooth * 0.7 + l * 0.3
+        levelSmooth = levelSmooth * 0.65 + l * 0.35
     }
     func setProcessing() {
         tick?.invalidate()
@@ -161,14 +155,12 @@ final class CapsulePanel {
         checkButton.isHidden = true
         barContainer.isHidden = true
         thinkingLabel.isHidden = false
+        thinkingLabel.stringValue = "Thinking"
     }
     func setResult(text: String, ok: Bool, inserted: Bool) {
         tick?.invalidate()
-        // Typeless 行为：文本直接落在光标处，浮条收起。错误才停留提示。
-        if ok {
-            hide()
-        } else {
-            thinkingLabel.stringValue = "✗ \(text.prefix(60))"
+        if ok { hide() } else {
+            thinkingLabel.stringValue = "✗ " + text.prefix(50)
             thinkingLabel.font = NSFont.systemFont(ofSize: 13)
             hideAfter(3.5)
         }
@@ -188,18 +180,15 @@ final class CapsulePanel {
         checkButton.isHidden = false
         barContainer.isHidden = false
         thinkingLabel.isHidden = true
-        thinkingLabel.stringValue = "Thinking"
-        thinkingLabel.font = NSFont.systemFont(ofSize: 15, weight: .medium)
-        thinkingLabel.textColor = NSColor(white: 0.62, alpha: 1)
     }
-    private func circleButton(_ title: String, _ x: CGFloat) -> NSButton {
-        let btn = NSButton(frame: NSRect(x: x, y: 13, width: 38, height: 38))
+    private func pillButton(_ title: String, _ x: CGFloat) -> NSButton {
+        let btn = NSButton(frame: NSRect(x: x, y: 12, width: 28, height: 28))
         btn.wantsLayer = true
-        btn.layer?.cornerRadius = 19
-        btn.layer?.backgroundColor = NSColor(white: 0.22, alpha: 1).cgColor
+        btn.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        btn.layer?.cornerRadius = 6
         btn.isBordered = false
         btn.title = title
-        btn.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        btn.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         btn.contentTintColor = NSColor.white
         return btn
     }
@@ -208,7 +197,8 @@ final class CapsulePanel {
             setRecordingUI()
             return
         }
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 64),
+        // Typeless 精确 token：440 宽 / #1d1a1a / radius 8 / 1px 边框 / shadow 0 0 20
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 52),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.level = .floating
@@ -217,53 +207,52 @@ final class CapsulePanel {
         p.backgroundColor = .clear
         p.hasShadow = true
 
-        let fx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 280, height: 64))
-        fx.material = .underWindowBackground
-        fx.blendingMode = .behindWindow
-        fx.state = .active
-        fx.appearance = NSAppearance(named: .darkAqua)
-        fx.wantsLayer = true
-        fx.layer?.cornerRadius = 32
-        fx.layer?.masksToBounds = true
-        fx.layer?.backgroundColor = NSColor(calibratedWhite: 0.07, alpha: 0.96).cgColor
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 52))
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor(red: 0x1d/255.0, green: 0x1a/255.0, blue: 0x1a/255.0, alpha: 1).cgColor
+        root.layer?.cornerRadius = 8
+        root.layer?.borderWidth = 1
+        root.layer?.borderColor = NSColor.white.withAlphaComponent(0.28).cgColor
+        root.layer?.shadowColor = NSColor.black.cgColor
+        root.layer?.shadowOpacity = 0.5
+        root.layer?.shadowRadius = 10
 
-        xButton = circleButton("✕", 14)
+        xButton = pillButton("✕", 10)
         xButton.target = self
         xButton.action = #selector(xClicked)
 
-        barContainer = NSView(frame: NSRect(x: 96, y: 14, width: 88, height: 36))
-        let bw: CGFloat = 3.5, gap: CGFloat = 5
+        barContainer = NSView(frame: NSRect(x: 158, y: 14, width: 124, height: 24))
         var bx: CGFloat = 0
-        for _ in 0..<9 {
-            let bar = NSView(frame: NSRect(x: bx, y: 11, width: bw, height: 14))
+        for _ in 0..<15 {
+            let bar = NSView(frame: NSRect(x: bx, y: 5, width: 3, height: 14))
             bar.wantsLayer = true
-            bar.layer?.cornerRadius = 1.75
-            bar.layer?.backgroundColor = NSColor.white.cgColor
+            bar.layer?.cornerRadius = 1.5
+            bar.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.92).cgColor
             barContainer.addSubview(bar)
             bars.append(bar)
-            bx += bw + gap
+            bx += 8
         }
         barContainer.wantsLayer = true
 
-        checkButton = circleButton("✓", 228)
+        checkButton = pillButton("✓", 402)
         checkButton.target = self
         checkButton.action = #selector(checkClicked)
 
         thinkingLabel = NSTextField(labelWithString: "Thinking")
-        thinkingLabel.font = NSFont.systemFont(ofSize: 15, weight: .medium)
+        thinkingLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         thinkingLabel.textColor = NSColor(white: 0.62, alpha: 1)
         thinkingLabel.alignment = .center
-        thinkingLabel.frame = NSRect(x: 0, y: 14, width: 280, height: 36)
+        thinkingLabel.frame = NSRect(x: 0, y: 12, width: 440, height: 28)
         thinkingLabel.isHidden = true
 
-        fx.addSubview(barContainer)
-        fx.addSubview(xButton)
-        fx.addSubview(checkButton)
-        fx.addSubview(thinkingLabel)
-        p.contentView = fx
+        root.addSubview(barContainer)
+        root.addSubview(xButton)
+        root.addSubview(checkButton)
+        root.addSubview(thinkingLabel)
+        p.contentView = root
         if let screen = NSScreen.main {
             let f = screen.frame
-            p.setFrameOrigin(NSPoint(x: f.midX - 140, y: f.origin.y + 120))
+            p.setFrameOrigin(NSPoint(x: f.midX - 220, y: f.origin.y + 130))
         }
         panel = p
     }
@@ -506,6 +495,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var soundOn = true
     var savedClipboard: String?
     var targetApp = ""     // 按热键时的前台应用名，用于分应用词层
+    // 键位注册表：slot -> (keyCode, 修饰键名)；改这里或 config 即改键
+    var hotkeys: [String: (key: UInt32, mods: String)] = [
+        "dictate": (49, "option"), "translate": (17, "option"), "ask": (12, "option")
+    ]
+    var hotkeyMap: [UInt32: (mods: CGEventFlags, id: Int)] = [:]
+    func refreshHotkeyMap() {
+        hotkeyMap = [:]
+        let ids = ["dictate": 0, "translate": 1, "ask": 2]
+        for (slot, def) in hotkeys {
+            if let id = ids[slot] { hotkeyMap[def.key] = (flagName(def.mods), id) }
+        }
+    }
+    static let modMap: [String: CGEventFlags] = [
+        "option": .maskAlternate, "command": .maskCommand, "control": .maskControl,
+        "shift": .maskShift, "none": []
+    ]
     var stopWork: DispatchWorkItem?
     let capsule = CapsulePanel()
     let hub = HubWindow()
@@ -552,6 +557,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
             ptt = j["ptt"] as? Bool ?? false
             soundOn = j["sound"] as? Bool ?? true
+            if let hk = j["hotkeys"] as? [String: [String: Any]] {
+                for (slot, def) in hk {
+                    if let k = def["key"] as? Int {
+                        hotkeys[slot] = (key: UInt32(k), mods: def["modifier"] as? String ?? "option")
+                    }
+                }
+            }
+            refreshHotkeyMap()
+            logLine("hotkeyMap entries: \(hotkeyMap.count) -> \(hotkeyMap.keys.sorted())")
+        }
+    }
+    func flagName(_ f: String) -> CGEventFlags {
+        switch f {
+        case "command": return .maskCommand
+        case "control": return .maskControl
+        case "shift": return .maskShift
+        case "none": return []
+        default: return .maskAlternate
         }
     }
     func beep(_ name: String) {
@@ -607,6 +630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logLine("force stopped")
     }
 
+    static var captureSlot: String?
     static var lastFire = Date.distantPast
     func hotkey(_ id: Int, keyUp: Bool = false) {
         if ptt { // 按住说话：按下开始，松开结束
@@ -649,10 +673,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async { app.cancelRecording() }
                 return Unmanaged.passUnretained(event)
             }
-            let opt = event.flags.contains(CGEventFlags.maskAlternate)
-            guard opt else { return Unmanaged.passUnretained(event) }
-            let id: Int? = code == 49 ? 0 : (code == 17 ? 1 : (code == 12 ? 2 : nil))
-            if let id { DispatchQueue.main.async { app.hotkey(id, keyUp: isUp) } }
+            if let h = app.hotkeyMap[UInt32(code)] {
+                let mods = event.flags
+                let need = h.mods
+                let ok = need.isEmpty ? mods.isEmpty : mods.isSuperset(of: need)
+                if ok { DispatchQueue.main.async { app.hotkey(h.id, keyUp: isUp) } }
+            }
             return Unmanaged.passUnretained(event)
         }
         guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
@@ -679,7 +705,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hb.dispatch(Int(hkID.id))
             return noErr
         }, 1, &spec, box, &handlerRef)
-        let keys: [(UInt32, Int)] = [(UInt32(kVK_Space), 0), (17, 1), (12, 2)]
+        let idByCode = ["dictate": 0, "translate": 1, "ask": 2]
+        let keys: [(UInt32, Int)] = hotkeys.compactMap { slot, def in
+            guard let id = idByCode[slot] else { return nil }
+            return (def.key, id)
+        }
         for (keyCode, id) in keys {
             var ref: EventHotKeyRef?
             RegisterEventHotKey(keyCode, UInt32(optionKey), EventHotKeyID(signature: fourCC("sayl"), id: UInt32(id)), GetApplicationEventTarget(), 0, &ref)
