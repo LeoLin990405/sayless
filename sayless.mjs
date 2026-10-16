@@ -61,12 +61,21 @@ const DEFAULT_CFG = {
     models: [
       { provider: 'zai', model: 'glm-5-turbo' },
       { provider: 'deepseek', model: 'deepseek-flash' },
-      { provider: 'minimax', model: 'MiniMax-M3' }
+      { provider: 'minimax', model: 'MiniMax-M3' },
+      { provider: 'ark-plan', model: 'doubao-seed-2-1-turbo-260628' }
     ],
-    arbiter: { provider: 'deepseek', model: 'deepseek-v4-pro' },
-    similarity: 0.82 // 归一化后字符二元组 Dice 系数阈值，>= 视为一致
+    arbiter: { provider: 'deepseek', model: 'deepseek-v4-flash-ga-260910' },
+    similarity: 0.82,
+    timeoutMs: 30000 // 归一化后字符二元组 Dice 系数阈值，>= 视为一致
   },
-  insert: { mode: 'paste' }
+  insert: { mode: 'paste' },
+  // 工作流预设：切换整套模型组合
+  workflows: {
+    fast:   { asr: 'whisper', llm: { provider: 'ark-plan', model: 'doubao-seed-2-1-turbo-260628' }, cross: false },
+    quality:{ asr: 'whisper', llm: { cross: true }, cross: true },
+    cloud:  { asr: 'ark-ws', llm: { provider: 'ark-plan', model: 'doubao-seed-2-1-pro-260915' }, cross: true }
+  },
+  activeWorkflow: 'fast'
 };
 
 const DEFAULT_DICT = {
@@ -113,7 +122,8 @@ function loadDict(app) {
   return {
     replacements: layers.flatMap(l => l.replacements || []),
     hotwords: layers.flatMap(l => l.hotwords || []),
-    styleRules: layers.flatMap(l => l.styleRules || [])
+    styleRules: layers.flatMap(l => l.styleRules || []),
+    app: app || undefined
   };
 }
 function applyDict(text, app) {
@@ -414,6 +424,60 @@ async function finishPipeline(wavPath, { insert = true, raw = false, translateTo
   if (insert) insertText(out); else console.log(out);
 }
 
+// ---- 学习引擎：智能 diff + 词库挖掘 ----
+const PUNCT = /[，。,.！!？?、；;：:\s（）()【】\[\]""''""·—…\-]/g;
+function tokenizeCn(text) {
+  // 按标点分句 → 按空格分词 → 过滤短段
+  return text.replace(PUNCT, ' ').split(/\s+/).filter(t => t.length >= 2);
+}
+function smartDiff(raw, corrected) {
+  // 策略：先按标点/空白切句，对比每句找替换对
+  const rawS = raw.replace(PUNCT, '|').split('|').filter(t => t.trim());
+  const corS = corrected.replace(PUNCT, '|').split('|').filter(t => t.trim());
+  const pairs = [];
+  // 逐句对齐（简单：同位置句对比）
+  const max = Math.max(rawS.length, corS.length);
+  for (let i = 0; i < max; i++) {
+    const r = (rawS[i] || '').trim(), c = (corS[i] || '').trim();
+    if (!r || !c || r === c) continue;
+    // 句内 token 级对比
+    const rT = tokenizeCn(r), cT = tokenizeCn(c);
+    const minT = Math.min(rT.length, cT.length);
+    for (let j = 0; j < minT; j++) {
+      if (rT[j] !== cT[j] && rT[j].length >= 1 && cT[j].length >= 1) {
+        pairs.push({ from: rT[j], to: cT[j] });
+      }
+    }
+  }
+  // 整体兜底：如果没找到 token 级差异但整体不同，把全文作为一对
+  if (!pairs.length && normalizeTxt(raw) !== normalizeTxt(corrected)) {
+    pairs.push({ from: raw.trim(), to: corrected.trim() });
+  }
+  return pairs;
+}
+function mineCorrections() {
+  // 从 feedback.jsonl 挖掘高频修正模式
+  const fb = path.join(DIR, 'feedback.jsonl');
+  if (!fs.existsSync(fb)) { console.log('（暂无反馈记录）'); return; }
+  const patterns = {};
+  for (const line of fs.readFileSync(fb, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const e = JSON.parse(line);
+      for (const p of e.pairs || []) {
+        const key = `${p.from}→${p.to}`;
+        patterns[key] = (patterns[key] || 0) + 1;
+      }
+    } catch {}
+  }
+  const sorted = Object.entries(patterns).sort((a, b) => b[1] - a[1]);
+  if (!sorted.length) { console.log('（暂无修正模式）'); return; }
+  console.log('高频修正模式：');
+  for (const [k, c] of sorted.slice(0, 10)) console.log(`  ${k} ×${c}`);
+  console.log(`\n用 sayless dict add "${sorted[0][0].split('→')[0].trim()}" "${sorted[0][0].split('→')[1]?.trim()}" 加入词库`);
+}
+function saveDict(d) { fs.writeFileSync(DICT, JSON.stringify(d, null, 2)); }
+
 // ---- CLI ----
 const [, , cmd, ...rest] = process.argv;
 const arg = (name, def) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : def; };
@@ -539,5 +603,45 @@ try {
     const d = spawnSync('ffmpeg', ['-f', 'avfoundation', '-list_devices', 'true', '-i', ''], { encoding: 'utf8' });
     console.log('录音设备：\n' + (d.stderr || '').split('\n').filter(l => /\[\d+\] /.test(l)).slice(0, 6).join('\n'));
   }
-  else { console.error('命令: init | run | rec | asr | polish | translate [--to en] | ask | transcribe | insert | dict | history [-n] | doctor'); process.exit(cmd ? 2 : 0); }
+  else if (cmd === 'learn') {
+    // 用法:
+    //   sayless learn "识别错的" "改对的"     → 智能diff生成词条
+    //   sayless learn --last "改对的全文"     → 拿上一条raw对比
+    //   sayless learn --mine                 → 从历史挖掘高频修正模式
+    ensureInit();
+    const FB = path.join(DIR, 'feedback.jsonl');
+    if (rest[0] === '--mine') { mineCorrections(); process.exit(0); }
+    let rawText, corrected;
+    if (rest[0] === '--last') {
+      corrected = rest.slice(1).filter(a => !a.startsWith('-')).join(' ');
+      // 取最近一条听写的 raw
+      const hist = fs.existsSync(path.join(DIR, 'history.jsonl'))
+        ? fs.readFileSync(path.join(DIR, 'history.jsonl'), 'utf8').trim().split('\n') : [];
+      const lastLine = hist[hist.length - 1];
+      if (!lastLine) { console.error('✗ 无历史'); process.exit(1); }
+      rawText = JSON.parse(lastLine).raw || '';
+    } else {
+      rawText = rest[0] || '';
+      corrected = rest.slice(1).filter(a => !a.startsWith('-')).join(' ');
+    }
+    if (!rawText || !corrected) { console.error('用法: sayless learn <raw> <corrected>'); process.exit(2); }
+    const pairs = smartDiff(rawText, corrected);
+    if (!pairs.length) { console.log('未发现差异'); process.exit(0); }
+    const d = readJson(DICT);
+    let added = 0;
+    for (const pair of pairs) {
+      if (pair.from.length < 1 || pair.from === pair.to) continue;
+      const exists = (d.replacements || []).some(r => r.from === pair.from);
+      if (!exists) { d.replacements.push({ from: pair.from, to: pair.to }); added++; }
+      if (pair.to.length >= 2 && /[A-Z\u4e00-\u9fff]/.test(pair.to)) {
+        d.hotwords = [...new Set([...(d.hotwords || []), pair.to])];
+      }
+    }
+    saveDict(d);
+    fs.appendFileSync(path.join(DIR, 'feedback.jsonl'),
+      JSON.stringify({ ts: new Date().toISOString(), raw: rawText.slice(0, 300), corrected: corrected.slice(0, 300), pairs, added }) + '\n');
+    console.log(`学习完成：${pairs.length} 处差异 → ${added} 条新替换规则`);
+    for (const p2 of pairs) console.log(`  ${p2.from} → ${p2.to}`);
+  }
+  else { console.error('命令: init | run | rec | asr | polish | translate [--to en] | ask | transcribe | insert | dict | learn | history [-n] | doctor'); process.exit(cmd ? 2 : 0); }
 } catch (e) { console.error(`✗ ${e.message}`); process.exit(1); }
