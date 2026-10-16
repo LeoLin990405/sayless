@@ -34,7 +34,6 @@ const DEFAULT_CFG = {
       // apiKey: Agent Plan 专属 key；也可环境变量 SAYLESS_API_KEY
       model: 'doubao-seed-2-1-turbo-260628'
     },
-    'ark-platform': { baseUrl: 'https://ark.cn-beijing.volces.com/api/v3' },
     dashscope: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
     minimax: { baseUrl: 'https://api.minimaxi.com/v1' },
     siliconflow: { baseUrl: 'https://api.siliconflow.cn/v1' },
