@@ -316,10 +316,29 @@ final class HubWindow: NSObject {
             }
         }
         entries.reverse()
-        // 连续天数
-        var streak = 0
-        var day = Calendar.current.startOfDay(for: Date())
-        while days.contains(DateFormatter.iso(day)) { streak += 1; day = Calendar.current.date(byAdding: .day, value: -1, to: day)! }
+        // 连续天数：当前（今天或昨天起算，今天还没听写不清零）+ 历史最长
+        var curStreak = 0, longest = 0
+        var run = 0
+        var prevIso: String?
+        for dIso in days.sorted() {
+            if let p = prevIso, let pd = DateFormatter.date(p + "T00:00:00Z"),
+               let dd = DateFormatter.date(dIso + "T00:00:00Z"),
+               let next = Calendar.current.date(byAdding: .day, value: 1, to: pd),
+               Calendar.current.isDate(dd, inSameDayAs: next) {
+                run += 1
+            } else { run = 1 }
+            longest = max(longest, run)
+            prevIso = dIso
+        }
+        var probe = Calendar.current.startOfDay(for: Date())
+        if !days.contains(DateFormatter.iso(probe)) {
+            probe = Calendar.current.date(byAdding: .day, value: -1, to: probe)!
+        }
+        while days.contains(DateFormatter.iso(probe)) {
+            curStreak += 1
+            probe = Calendar.current.date(byAdding: .day, value: -1, to: probe)!
+        }
+        let streak = curStreak
         let dictFile = NSHomeDirectory() + "/.sayless/dictionary.json"
         var dictRows = "", hotChips = "", rules = ""
         if let raw = try? String(contentsOfFile: dictFile, encoding: .utf8),
@@ -387,6 +406,7 @@ final class HubWindow: NSObject {
         html = html.replacingOccurrences(of: "__STAT2__", with: "\(entries.count)")
         html = html.replacingOccurrences(of: "__STAT3__", with: "\(days.count)")
         html = html.replacingOccurrences(of: "__STAT4__", with: "\(streak)")
+        html = html.replacingOccurrences(of: "__STAT5__", with: "\(longest)")
         html = html.replacingOccurrences(of: "__HISTROWS__", with: histRows)
         html = html.replacingOccurrences(of: "__DICTROWS__", with: dictRows)
         html = html.replacingOccurrences(of: "__HOTCHIPS__", with: hotChips)
@@ -441,7 +461,8 @@ final class HubWindow: NSObject {
             if cur.count == 7 { weeks.append(cur); cur = [] }
             d = cal.date(byAdding: .day, value: 1, to: d)!
         }
-        for w in weeks.reversed() { cells += "<div class='wk'>" + w.joined() + "</div>" }
+        // 周为列、从旧到新自左向右（GitHub 式）
+        for w in weeks { cells += "<div class='wk'>" + w.joined() + "</div>" }
         return cells
     }
 }
@@ -519,6 +540,9 @@ extension DateFormatter {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: d)
+    }
+    static func date(_ s: String) -> Date? {
+        ISO8601DateFormatter().date(from: s)
     }
     static func yyyymmdd(_ d: Date) -> String {
         let f = DateFormatter()
