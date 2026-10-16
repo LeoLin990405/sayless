@@ -449,20 +449,25 @@ final class HubWindow: NSObject {
     private func buildHeat(_ days: Set<String>) -> String {
         var cells = ""
         let cal = Calendar.current
-        var d = cal.date(byAdding: .day, value: -139, to: cal.startOfDay(for: Date()))!
-        let fmt = { (d: Date) -> String in DateFormatter.yyyymmdd(d) }
-        var weeks: [[String]] = []
-        var cur: [String] = []
-        for _ in 0...140 {
-            let dow = cal.component(.weekday, from: d)
-            let on = days.contains(fmt(d))
-            let cls = on ? "on" : ""
-            cur.append("<i class='" + cls + "' title='" + fmt(d) + "'></i>")
-            if cur.count == 7 { weeks.append(cur); cur = [] }
-            d = cal.date(byAdding: .day, value: 1, to: d)!
+        let today = cal.startOfDay(for: Date())
+        // 网格从 ~20 周前所在周的周日开始（weekday: 1=周日），保证每列 = 一个日历周
+        let start = cal.date(byAdding: .day, value: -139, to: today)!
+        let dow = cal.component(.weekday, from: start)
+        var d = cal.date(byAdding: .day, value: -(dow - 1), to: start)!
+        // 周为列、从旧到新自左向右；当前周只画到今天，未来日子留透明占位
+        while d <= today {
+            var col = ""
+            for _ in 0..<7 {
+                if d > today {
+                    col += "<i style='opacity:0'></i>"
+                } else {
+                    let iso = DateFormatter.yyyymmdd(d)
+                    col += "<i class='" + (days.contains(iso) ? "on" : "") + "' title='" + iso + "'></i>"
+                }
+                d = cal.date(byAdding: .day, value: 1, to: d)!
+            }
+            cells += "<div class='wk'>" + col + "</div>"
         }
-        // 周为列、从旧到新自左向右（GitHub 式）
-        for w in weeks { cells += "<div class='wk'>" + w.joined() + "</div>" }
         return cells
     }
 }
