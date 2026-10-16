@@ -422,6 +422,29 @@ final class HubWindow: NSObject {
         return cells
     }
 }
+    // MARK: - 设置保存
+    func handleCfgMessage(_ body: Any) {
+        guard let bodyStr = body as? String,
+              let bodyData = bodyStr.data(using: .utf8),
+              let msg = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any],
+              msg["action"] as? String == "saveCfg",
+              let cfgNew = msg["config"] as? [String: Any] else { return }
+        let cfgFile = NSHomeDirectory() + "/.sayless/config.json"
+        guard let raw = try? String(contentsOfFile: cfgFile, encoding: .utf8),
+              var cfg = (try? JSONSerialization.jsonObject(with: raw.data(using: .utf8)!)) as? [String: Any] else { return }
+        for (k, v) in cfgNew {
+            if let sub = v as? [String: Any], let dstSub = cfg[k] as? [String: Any] {
+                var merged = dstSub
+                for (kk, vv) in sub { merged[kk] = vv }
+                cfg[k] = merged
+            } else { cfg[k] = v }
+        }
+        if let out = try? JSONSerialization.data(withJSONObject: cfg, options: [.prettyPrinted]) {
+            try? out.write(to: URL(fileURLWithPath: cfgFile))
+        }
+        logLine("cfg saved")
+        // 页面在下次打开时自动刷新
+    }
 
 extension HubWindow: WKScriptMessageHandler {
     func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {

@@ -53,6 +53,7 @@ ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
     <a class="__T0__" onclick="go(0,this)">⌂&nbsp; 首页</a>
     <a class="__T1__" onclick="go(1,this)">◷&nbsp; 历史记录</a>
     <a class="__T2__" onclick="go(2,this)">▤&nbsp; 词典</a>
+    <a class="__T3__" onclick="go(3,this)" style="__T3S__">⚙&nbsp; 设置</a>
   </div>
   <div class="spacer"></div>
   <div class="foot">◐&nbsp; ◯&nbsp; ⚙&nbsp; ?</div>
@@ -77,10 +78,10 @@ ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
       <div class="legend">更少 <i style="background:#232323"></i><i style="background:#1e3a8a"></i><i style="background:#2563eb"></i><i style="background:#60a5fa"></i> 更多</div>
     </div>
   </div>
-  <div class="tab __VT1__" id="t1">
+  <div class="tab" id="t1">
     <h1 style="font-size:28px">历史记录</h1>
-    <h2 class="sec">最近 60 条</h2>
-    __HISTROWS__
+    <input id="hsearch" placeholder="搜索…" oninput="filterHist()" style="background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:8px;padding:8px 14px;width:320px;font-size:13px;margin:10px 0">
+    <div id="histlist">__HISTROWS__</div>
   </div>
   <div class="tab __VT2__" id="t2">
     <h1 style="font-size:28px">词典</h1>
@@ -123,9 +124,54 @@ ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
   <div class="grad p"><div class="t">自己的套餐</div><div class="d">润色与翻译走你的方舟 / 智谱 / DeepSeek / MiniMax 套餐。</div></div>
 </div>
 <script>
+function filterHist(){
+  var q = document.getElementById('hsearch').value.toLowerCase();
+  document.querySelectorAll('#histlist .hrow').forEach(function(r){
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+function filterHist(){
+  var q = document.getElementById('hsearch') ? document.getElementById('hsearch').value.toLowerCase() : '';
+  document.querySelectorAll('.hrow').forEach(function(r){
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+function saveCfg(){
+  var c = {
+    asr: { adapter: val('c-asr-adapter'), model: val('c-asr-model'), wsUrl: val('c-asr-wsurl') },
+    llm: { provider: val('c-llm-provider'), model: val('c-llm-model') },
+    translate: { to: val('c-to') },
+    sound: chk('c-sound'), ptt: chk('c-ptt')
+  };
+  dictPost({ action:'saveCfg', config: c });
+  document.getElementById('cfgmsg').textContent = '已保存 ✓';
+  setTimeout(function(){ document.getElementById('cfgmsg').textContent = ''; }, 2500);
+}
+function val(id){ return document.getElementById(id).value; }
+function chk(id){ return document.getElementById(id).checked; }
+function filterHist(){
+  var q = document.getElementById('hsearch') ? document.getElementById('hsearch').value.toLowerCase() : '';
+  document.querySelectorAll('.hrow').forEach(function(r){
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+function saveCfg(){
+  var c = {
+    asr: { adapter: gv('c-asr-adapter'), model: gv('c-asr-model'), wsUrl: gv('c-asr-wsurl') },
+    llm: { provider: gv('c-llm-provider'), model: gv('c-llm-model') },
+    translate: { to: gv('c-to') },
+    sound: gc('c-sound'), ptt: gc('c-ptt')
+  };
+  dictPost({ action:'saveCfg', config: c });
+  var el = document.getElementById('cfgmsg'); el.textContent = '已保存 ✓';
+  setTimeout(function(){ el.textContent=''; }, 2500);
+}
+function gv(id){ var e = document.getElementById(id); return e ? e.value : ''; }
+function gc(id){ var e = document.getElementById(id); return e ? e.checked : false; }
 function dictPost(obj){ window.webkit.messageHandlers.dict.postMessage(JSON.stringify(obj)); }
 function go(i, el){
   document.querySelectorAll('.tab').forEach((t,idx)=>t.classList.toggle('on', idx===i));
+  document.querySelectorAll('.nav a').forEach((a,idx)=>a.classList.toggle('on', idx===i || (i===3&&idx===2)));
   document.querySelectorAll('.nav a').forEach(a=>a.classList.remove('on'));
   (el||document.querySelectorAll('.nav a')[i]).classList.add('on');
 }
