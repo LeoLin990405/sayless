@@ -15,9 +15,17 @@
 ## 多模型
 
 `config.json → providers` 注册任意 OpenAI 兼容供应商（baseUrl+apiKey），
-内置预设：`ark-plan`（Agent Plan）/`ark-platform`/`dashscope`/`minimax`/`siliconflow`。
+内置预设：`ark-plan`（Agent Plan）/`dashscope`/`minimax`/`siliconflow`/`deepseek`/
+`zai`（智谱）/`kimi`/`stepfun`/`mimo`，以及两个**套餐专用通道**：
+
+| 通道 | key | 说明 |
+|---|---|---|
+| `stepfun-plan` | Step API Key（与按量同一把） | 套餐额度走 `https://api.stepfun.com/step_plan/v1`，与按量余额独立；需先[实名认证](https://account.stepfun.com/security?action=realname)；仅 `step-router-v1`（路由模型，输出带 advisor 脚手架，不建议进交叉投票） |
+| `mimo-plan` | 小米 Token Plan 的 `tp-` key | 套餐额度走 `https://token-plan-sgp.xiaomimimo.com/v1`，key 在[控制台](https://platform.xiaomimimo.com/console)获取；`mimo-v2.6-flash` 已进 5 模型交叉投票 |
+
 `llm`/`translate`/`ask` 三条链路各自 `provider+model`，随时切国产模型。
-当前实测组合：ASR=本地 whisper.cpp（离线）；LLM=ark-plan + doubao-seed-2-1-lite。
+当前实测组合：ASR=本地 whisper.cpp（离线）；LLM=ark-plan + doubao-seed-2-1-lite；
+交叉投票=zai + deepseek + minimax + ark-plan + mimo-plan 共 5 模型。
 
 ## 翻译与问答
 
@@ -42,6 +50,11 @@ sayless doctor                  # 探测路由/设备；401=路由在缺key，20
 默认：**ASR 走火山方舟**（`/api/v3/audio/transcriptions`，豆包套餐；确切 model id 用
 `arkcli models search asr` 查），**LLM 润色走百炼**（qwen-flash，Qwen 套餐）。
 都是 OpenAI 兼容协议，换任何兼容供应商只改 config 两个 url/model。
+
+云端 ASR 还支持 **MiMo 语音识别**（`asr.adapter: "mimo-asr"`）：MiMo-V2.5-ASR，
+中英双语+方言、自动标点，消耗 Token Plan 套餐额度（按音频秒计费）。地址/key 自动取
+`providers.mimo-plan`，切 adapter 只改 `asr.adapter` 一个字段；`asr.model` 仅在
+`mimo-` 开头时生效（默认 `mimo-v2.5-asr`）。
 
 ## 用法
 

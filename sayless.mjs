@@ -40,10 +40,15 @@ const DEFAULT_CFG = {
     moonshot: { baseUrl: 'https://api.moonshot.cn/v1' },
     zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
     deepseek: { baseUrl: 'https://api.deepseek.com/v1' },
-    stepfun: { baseUrl: 'https://api.stepfun.com/v1' }
+    stepfun: { baseUrl: 'https://api.stepfun.com/v1' },
+    // 套餐通道：同一把 Step API Key，但额度走 /step_plan 专用地址（与按量余额独立）
+    'stepfun-plan': { baseUrl: 'https://api.stepfun.com/step_plan/v1' },
+    mimo: { baseUrl: 'https://api.xiaomimimo.com/v1' },
+    // Token Plan 套餐通道：tp- 前缀 key + 专属域名（额度独立于按量现金余额）
+    'mimo-plan': { baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1' }
   },
   asr: {
-    // adapter: whisper（本地，离线）| ark-ws（方舟 Agent Plan 语音，需开按量扣费）| openai（OpenAI 兼容 REST）
+    // adapter: whisper（本地，离线）| mimo-asr（MiMo Token Plan 云端，套餐额度计费）| ark-ws（方舟 Agent Plan 语音，需开按量扣费）| openai（OpenAI 兼容 REST）
     adapter: 'whisper',
     whisperBin: '/opt/homebrew/bin/whisper-cli',
     whisperModel: path.join(DIR, 'ggml-base.bin'),
@@ -206,6 +211,29 @@ async function asr(wavPath) {
     const t = out.replace(/\s+/g, ' ').trim();
     if (/^[（(【\[〔].*[）)\]〕]$/.test(t)) return ''; // 整段括号包裹 = 静音幻觉标记
     return t;
+  }
+  if (cfg.asr.adapter === 'mimo-asr') {
+    // MiMo 云端语音识别：chat 接口 + input_audio base64（非 /audio/transcriptions 端点）。
+    // 地址与 key 优先取 providers.mimo-plan（套餐 tp- key + 专属域名），asr.* 仅作回退；
+    // 模型名只认 mimo- 开头，避免把其他厂商的 asr.model 带进来。切 adapter 改 asr.adapter 一个字段即可。
+    const plan = cfg.providers?.['mimo-plan'] || {};
+    const mk = plan.apiKey || cfg.asr.apiKey;
+    const base = (plan.baseUrl || cfg.asr.baseUrl || '').replace(/\/$/, '');
+    if (!mk || !base) { console.error('✗ mimo-asr 缺配置：providers.mimo-plan 的 baseUrl/apiKey 或 asr.baseUrl/apiKey'); process.exit(2); }
+    const model = (cfg.asr.model || '').startsWith('mimo-') ? cfg.asr.model : 'mimo-v2.5-asr';
+    const b64 = fs.readFileSync(wavPath).toString('base64');
+    const res = await fetch(base + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mk}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: { data: `data:audio/wav;base64,${b64}` } }] }],
+        asr_options: { language: cfg.asr.language || 'zh' }
+      })
+    });
+    const t = await res.text();
+    if (!res.ok) { console.error(`✗ ASR ${res.status}: ${t.slice(0, 400)}`); process.exit(3); }
+    return JSON.parse(t).choices?.[0]?.message?.content ?? '';
   }
   if (!key) { console.error('✗ 缺 apiKey：export SAYLESS_API_KEY=... 或写进 config.json'); process.exit(2); }
   if ((cfg.asr.adapter ?? 'openai') === 'ark-ws') {
