@@ -40,6 +40,7 @@ const DEFAULT_CFG = {
     moonshot: { baseUrl: 'https://api.moonshot.cn/v1' },
     zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
     deepseek: { baseUrl: 'https://api.deepseek.com/v1' },
+    kimi: { baseUrl: 'https://api.kimi.com/coding/v1' }, // Kimi for Coding（sk-kimi- key 专用端点）
     stepfun: { baseUrl: 'https://api.stepfun.com/v1' },
     // 套餐通道：同一把 Step API Key，但额度走 /step_plan 专用地址（与按量余额独立）
     'stepfun-plan': { baseUrl: 'https://api.stepfun.com/step_plan/v1' },
@@ -114,7 +115,77 @@ const ensureInit = () => {
     }
   }
   if (dirty) fs.writeFileSync(CFG, JSON.stringify(cfg, null, 2));
+  // 工作流预设生效（视图层覆盖，不写回文件）：--workflow <id> 可临时切换
+  const wi = process.argv.indexOf('--workflow');
+  if (wi > 0 && process.argv[wi + 1]) cfg.activeWorkflow = process.argv[wi + 1];
+  const wf = (cfg.workflows || {})[cfg.activeWorkflow];
+  if (wf) {
+    if (wf.asr) cfg.asr = { ...cfg.asr, adapter: wf.asr };
+    if (wf.llm) cfg.llm = { ...cfg.llm, ...(wf.llm.provider ? { provider: wf.llm.provider } : {}), ...(wf.llm.model ? { model: wf.llm.model } : {}) };
+    if (typeof wf.cross === 'boolean') cfg._wfCross = wf.cross; // --cross 显式旗标优先于预设
+  }
   return cfg;
+}
+
+// ---- 插件系统（个性化定制口子）----
+// 目录：~/.sayless/plugins/*.mjs，按文件名排序加载。每个插件导出（全部可选）：
+//   export const name                     展示名
+//   export const providers = {id:{...}}   注册自定义供应商（不覆盖同名用户配置）
+//   export async function onTranscript(t, ctx)  ASR+词典之后、LLM 之前；返回新文本或 undefined
+//   export async function onPolish(t, ctx)      结果定稿前（历史记录之前）
+//   export async function onInsert(t, ctx)      粘贴/输出前最后一道
+//   export const workflows = {id:{...}}   追加工作流预设
+// ctx = { mode, app, wavPath, cfg }。插件抛错只告警，不阻塞听写。
+const pluginLog = [];
+let pluginsCache;
+async function loadPlugins() {
+  if (pluginsCache) return pluginsCache;
+  pluginsCache = [];
+  const dir = path.join(DIR, 'plugins');
+  if (!fs.existsSync(dir)) return pluginsCache;
+  for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.mjs')).sort()) {
+    try {
+      const mod = await import(new URL('file://' + path.join(dir, f)));
+      pluginsCache.push({ file: f, ...mod });
+      const hooks = ['providers', 'workflows', 'onTranscript', 'onPolish', 'onInsert'].filter(k => mod[k] != null);
+      pluginLog.push(`插件 ${f}：${hooks.join(', ') || '（无导出钩子）'}`);
+    } catch (e) {
+      pluginLog.push(`插件 ${f} 加载失败：${e.message}`);
+    }
+  }
+  return pluginsCache;
+}
+let pluginsActive = false;
+async function activatePlugins(cfg) {
+  const ps = await loadPlugins();
+  if (!pluginsActive) {
+    pluginsActive = true;
+    for (const l of pluginLog) console.error(`· ${l}`);
+    if (ps.length) console.error(`· 已加载 ${ps.length} 个插件`);
+  }
+  // 插件供应商并入注册表，用户同名配置优先
+  for (const p of ps) {
+    for (const [id, prov] of Object.entries(p.providers || {})) {
+      cfg.providers = cfg.providers || {};
+      if (!cfg.providers[id]) cfg.providers[id] = prov;
+    }
+    for (const [id, wf] of Object.entries(p.workflows || {})) {
+      cfg.workflows = cfg.workflows || {};
+      if (!cfg.workflows[id]) cfg.workflows[id] = wf;
+    }
+  }
+  return ps;
+}
+async function runHook(hook, text, ctx) {
+  let t = text;
+  for (const p of await loadPlugins()) {
+    if (typeof p[hook] !== 'function') continue;
+    try {
+      const r = await p[hook](t, ctx);
+      if (typeof r === 'string') t = r;
+    } catch (e) { console.error(`· 插件 ${p.file}.${hook} 出错：${e.message}`); }
+  }
+  return t;
 };
 
 // ---- 词语库（确定性，零云端；支持分应用词层）----
@@ -265,6 +336,8 @@ async function polishOnce(cfg, d, provider, model, text, signal) {
 }
 async function polish(text, { dryRun = false, provider: pOv, model: mOv, cross = false, app = null } = {}) {
   const cfg = ensureInit();
+  await activatePlugins(cfg);
+  cross = cross || cfg._wfCross === true;
   const d = loadDict(app);
   text = applyDict(text, app);
   if (dryRun) return { text, applied: 'dict-only(dry-run)' };
@@ -347,6 +420,8 @@ async function translateOnce(cfg, d, provider, model, text, to, signal) {
 }
 async function translateText(text, to, { provider: pOv, model: mOv, cross = false } = {}) {
   const cfg = ensureInit();
+  await activatePlugins(cfg);
+  cross = cross || cfg._wfCross === true;
   const d = readJson(DICT);
   if (cross) return crossEnhance(cfg, 'translate', text, (p, m, t, sig) => translateOnce(cfg, d, p, m, t, to, sig));
   const base = pick(cfg, 'translate');
@@ -404,6 +479,7 @@ async function webSearch(query, cfgAsk) {
 }
 async function askAnswer(question, { provider: pOv, model: mOv } = {}) {
   const cfg = ensureInit();
+  await activatePlugins(cfg);
   const rs = await webSearch(question, cfg.ask);
   const base = pick(cfg, 'ask');
   const provider = pOv || base.provider, model = mOv || (pOv ? undefined : base.model);
@@ -430,8 +506,12 @@ function insertText(text) {
 
 // ---- 统一管线 ----
 async function finishPipeline(wavPath, { insert = true, raw = false, translateTo = null, askMode = false, provider = null, model = null, cross = false, app = null } = {}) {
-  ensureInit();
-  const rawText = await asr(wavPath);
+  const cfg = ensureInit();
+  await activatePlugins(cfg);
+  let rawText = await asr(wavPath);
+  const mode = askMode ? 'ask' : (translateTo ? `translate:${translateTo}` : (raw ? 'raw' : 'dictate'));
+  const ctx = { mode, app, wavPath, cfg };
+  rawText = await runHook('onTranscript', rawText, ctx) || rawText;
   const speech = rawText.replace(/[。，,.！!？?、；;：:\s()（）【】\[\]〔〕]/g, '');
   if (speech.length <= 1) {
     console.error('✗ 未识别到语音内容（录太短或纯静音），已跳过');
@@ -442,9 +522,10 @@ async function finishPipeline(wavPath, { insert = true, raw = false, translateTo
   else if (translateTo) out = await translateText(applyDict(rawText), translateTo, { provider, model, cross });
   else if (raw) out = applyDict(rawText, app);
   else out = (await polish(rawText, { provider, model, cross, app })).text;
+  out = await runHook('onPolish', String(out), ctx);
+  out = await runHook('onInsert', out, ctx);
   console.error(`识别: ${rawText}\n结果: ${out}`);
   try {
-    const mode = askMode ? 'ask' : (translateTo ? `translate:${translateTo}` : (raw ? 'raw' : 'dictate'));
     fs.appendFileSync(path.join(DIR, 'history.jsonl'),
       JSON.stringify({ ts: new Date().toISOString(), mode, app: app || undefined, raw: rawText.slice(0, 500), out: String(out).slice(0, 1000), inserted: insert }) + '\n');
   } catch { /* 历史落盘失败不阻塞主流程 */ }
@@ -509,7 +590,7 @@ function saveDict(d) { fs.writeFileSync(DICT, JSON.stringify(d, null, 2)); }
 const [, , cmd, ...rest] = process.argv;
 const arg = (name, def) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : def; };
 const has = (name) => rest.includes(name);
-const FLAGGED = new Set(['--sec', '-o', '--raw', '--no-insert', '--dry-run', '--translate', '--to', '--ask', '--say', '--provider', '--model', '--cross', '-n']);
+const FLAGGED = new Set(['--sec', '-o', '--raw', '--no-insert', '--dry-run', '--translate', '--to', '--ask', '--say', '--provider', '--model', '--cross', '--workflow', '-n']);
 const positional = () => rest.filter((v, i) => !FLAGGED.has(v) && !['--sec', '-o', '--translate', '--to', '--provider', '--model', '--app'].includes(rest[i - 1]));
 const overrides = () => ({ provider: arg('--provider'), model: arg('--model') });
 
@@ -618,17 +699,39 @@ try {
   }
   else if (cmd === 'doctor') {
     const cfg = ensureInit();
+    await activatePlugins(cfg);
     console.log(`ASR adapter: ${cfg.asr.adapter}${cfg.asr.adapter === 'whisper' ? ` (${cfg.asr.whisperBin}, ${fs.existsSync(cfg.asr.whisperModel) ? '模型OK' : '模型缺失!'})` : ''}`);
+    console.log(`链路: LLM=${cfg.llm.provider}/${cfg.llm.model} · 翻译→${cfg.translate.to} (${cfg.translate.provider}) · 交叉投票=${(cfg.cross?.models || []).length}家 · 工作流=${cfg.activeWorkflow}`);
+    const withKey = [], noKey = [];
     for (const [name, p] of Object.entries(cfg.providers || {})) {
       const key = p.apiKey || process.env.SAYLESS_API_KEY || '';
+      (key ? withKey : noKey).push([name, p]);
+    }
+    if (noKey.length) console.log(`\n未配 key（仅注册，401=路由存在）:`);
+    for (const [name, p] of noKey) {
       try {
-        const r = await fetch(p.baseUrl.replace(/\/$/, '') + '/models', { headers: { Authorization: `Bearer ${key || 'dummy'}` } });
-        console.log(`provider ${name}: HTTP ${r.status} ${r.status === 401 ? '(路由在，缺 key)' : r.status === 404 ? '(路由不存在)' : r.status < 300 ? '(key 有效)' : ''}`);
-      } catch (e) { console.log(`provider ${name}: 网络失败 ${e.cause?.code || e.message}`); }
+        const r = await fetch(p.baseUrl.replace(/\/$/, '') + '/models', { headers: { Authorization: 'Bearer dummy' } });
+        console.log(`  ${name}: HTTP ${r.status} ${r.status === 401 ? '(路由在，缺 key)' : r.status === 404 ? '(路由不存在)' : ''}`);
+      } catch (e) { console.log(`  ${name}: 网络失败 ${e.cause?.code || e.message}`); }
+    }
+    if (withKey.length) console.log(`\n已配 key:`);
+    for (const [name, p] of withKey) {
+      try {
+        const r = await fetch(p.baseUrl.replace(/\/$/, '') + '/models', { headers: { Authorization: `Bearer ${p.apiKey}` } });
+        console.log(`  ${name}: HTTP ${r.status} ${r.status < 300 ? '(key 有效)' : r.status === 401 ? '(key 无效!)' : r.status === 402 ? '(额度不足)' : r.status === 403 ? '(403 未开通/未实名)' : r.status === 404 ? '(端点无 /models，不代表 key 无效)' : ''}`);
+      } catch (e) { console.log(`  ${name}: 网络失败 ${e.cause?.code || e.message}`); }
     }
     const { spawnSync } = await import('node:child_process');
     const d = spawnSync('ffmpeg', ['-f', 'avfoundation', '-list_devices', 'true', '-i', ''], { encoding: 'utf8' });
     console.log('录音设备：\n' + (d.stderr || '').split('\n').filter(l => /\[\d+\] /.test(l)).slice(0, 6).join('\n'));
+  }
+  else if (cmd === 'plugin') {
+    const cfg = ensureInit();
+    const ps = await loadPlugins();
+    if (!ps.length) { console.log('未安装插件。目录 ~/.sayless/plugins/，写 *.mjs 导出 onTranscript/onPolish/onInsert/providers/workflows 即可，见 PLUGINS.md。'); process.exit(0); }
+    console.log(`已安装 ${ps.length} 个插件（~/.sayless/plugins/）：`);
+    for (const l of pluginLog) console.log('  ' + l);
+    process.exit(0);
   }
   else if (cmd === 'learn') {
     // 用法:
@@ -670,5 +773,5 @@ try {
     console.log(`学习完成：${pairs.length} 处差异 → ${added} 条新替换规则`);
     for (const p2 of pairs) console.log(`  ${p2.from} → ${p2.to}`);
   }
-  else { console.error('命令: init | run | rec | asr | polish | translate [--to en] | ask | transcribe | insert | dict | learn | history [-n] | doctor'); process.exit(cmd ? 2 : 0); }
+  else { console.error('命令: init | run | rec | asr | polish | translate [--to en] | ask | transcribe | insert | dict | learn | history [-n] | plugin | doctor'); process.exit(cmd ? 2 : 0); }
 } catch (e) { console.error(`✗ ${e.message}`); process.exit(1); }

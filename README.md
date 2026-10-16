@@ -16,7 +16,8 @@
 
 `config.json → providers` 注册任意 OpenAI 兼容供应商（baseUrl+apiKey），
 内置预设：`ark-plan`（Agent Plan）/`dashscope`/`minimax`/`siliconflow`/`deepseek`/
-`zai`（智谱）/`kimi`/`stepfun`/`mimo`，以及两个**套餐专用通道**：
+`zai`（智谱）/`kimi`（Kimi for Coding：`api.kimi.com/coding/v1` + `sk-kimi-` key）/
+`stepfun`/`mimo`，以及两个**套餐专用通道**：
 
 | 通道 | key | 说明 |
 |---|---|---|
@@ -24,8 +25,20 @@
 | `mimo-plan` | 小米 Token Plan 的 `tp-` key | 套餐额度走 `https://token-plan-sgp.xiaomimimo.com/v1`，key 在[控制台](https://platform.xiaomimimo.com/console)获取；`mimo-v2.6-flash` 已进 5 模型交叉投票 |
 
 `llm`/`translate`/`ask` 三条链路各自 `provider+model`，随时切国产模型。
+`sayless doctor` 分组实测各供应商（已配 key / 未配 key）+ 显示当前链路。
 当前实测组合：ASR=本地 whisper.cpp（离线）；LLM=ark-plan + doubao-seed-2-1-lite；
 交叉投票=zai + deepseek + minimax + ark-plan + mimo-plan 共 5 模型。
+
+**工作流**（`activeWorkflow`，hub 设置页可切，`--workflow <id>` 可临时切）：
+`fast`=单模型直出（日常听写推荐，2-3s）· `quality`=5 模型交叉投票（~15s）·
+`cloud`=云端 ASR+投票。预设可在 config.json `workflows` 增补，插件也能注册。
+
+## 插件（个性化定制口子）
+
+`~/.sayless/plugins/` 放 `.mjs` 即可定制管线，不改源码：文本钩子
+（`onTranscript`/`onPolish`/`onInsert`）、注册自定义供应商与工作流。
+按应用切换语气、行业术语后处理、听写自动同步外部系统等场景见 **[PLUGINS.md](PLUGINS.md)**，
+`sayless plugin` 查看已加载插件。
 
 ## 翻译与问答
 
@@ -82,7 +95,11 @@ sayless dict add 方舟 Ark  # 词语库加确定性替换（零云端，立即�
 - 录音由 app 直接 spawn ffmpeg；转写→润色→粘贴复用 `sayless transcribe` CLI。
 - 首次按 ⌥Space 会弹**麦克风**授权（授予 SaylessBar）；首次粘贴会弹**辅助功能**
   授权（同样给 SaylessBar）。错误走系统通知，日志在 `~/.sayless/saylessbar.log`。
+- **主面板四页**：首页（洞察+热力图）/ 历史记录（可搜索）/ 词典（可视化编辑）/
+  **设置**（ASR 引擎、润色模型、交叉阵容、翻译语种、工作流、行为开关——保存深合并
+  写回 config.json，apiKey 等敏感字段不进页面、不会被覆盖）。菜单"设置…"直达。
 - 重新构建：`app/build.sh`（swiftc 编译 + ad-hoc 签名 + 装 /Applications 并启动）。
+  调试：`SAYLESS_SHOW_HUB=3`（0-3 = 启动即开首页/历史/词典/设置页）。
 - 开机自启：系统设置 → 通用 → 登录项 → 添加 SaylessBar。
 
 ## 注意

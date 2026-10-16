@@ -39,6 +39,7 @@ kbd{display:inline-block;background:#4a4848;border:1px solid #5a5858;border-radi
 .grad{border-radius:16px;padding:18px;color:#fff}
 .grad.b{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}
 .grad.p{background:linear-gradient(135deg,#4c1d95,#7c3aed)}
+.grad.g{background:linear-gradient(135deg,#14532d,#16a34a)}
 .grad .t{font-size:15px;font-weight:700;margin-bottom:6px}
 .grad .d{font-size:12px;opacity:.85}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -46,6 +47,17 @@ td{padding:8px 6px;border-bottom:1px solid #1f1f1f;color:var(--txt)}
 ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
 .chip{display:inline-block;background:#4a4848;border:1px solid #5a5858;border-radius:7px;padding:4px 10px;margin:3px;font-size:12px}
 .tab{display:none}.tab.on{display:block}
+/* 设置页表单 */
+.form{max-width:620px}
+.frow{display:flex;align-items:center;gap:14px;margin:12px 0}
+.frow label{width:150px;flex-shrink:0;font-size:13px;color:var(--sub)}
+select,input[type=text]{background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:8px;padding:8px 12px;font-size:13px;min-width:280px}
+input[type=text]{min-width:280px}
+input[type=checkbox]{width:17px;height:17px;accent-color:#2563eb}
+.hint{font-size:12px;color:#8a8a8a;margin:4px 0 0 164px;max-width:420px;line-height:1.6}
+.btn{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:9px 26px;font-size:14px;font-weight:600;cursor:pointer}
+.btn:hover{background:#1d4ed8}
+#cfgmsg{font-size:13px;color:#4ade80;margin-left:12px}
 </style></head><body>
 <div class="side">
   <div class="logo">Sayless <span class="badge">本地</span></div>
@@ -53,7 +65,7 @@ ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
     <a class="__T0__" onclick="go(0,this)">⌂&nbsp; 首页</a>
     <a class="__T1__" onclick="go(1,this)">◷&nbsp; 历史记录</a>
     <a class="__T2__" onclick="go(2,this)">▤&nbsp; 词典</a>
-    <a class="__T3__" onclick="go(3,this)" style="__T3S__">⚙&nbsp; 设置</a>
+    <a class="__T3__" onclick="go(3,this)">⚙&nbsp; 设置</a>
   </div>
   <div class="spacer"></div>
   <div class="foot">◐&nbsp; ◯&nbsp; ⚙&nbsp; ?</div>
@@ -109,6 +121,71 @@ ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
     <ul>__RULES__</ul>
     <p style="font-size:12px;color:#888;margin-top:16px">所有修改即时写入 ~/.sayless/dictionary.json；分应用词层在 dictionary.json 的 "apps" 里配置。</p>
   </div>
+  <div class="tab" id="t3">
+    <h1 style="font-size:28px">设置</h1>
+    <div class="form">
+      <h2 class="sec">语音识别（ASR）</h2>
+      <div class="frow"><label>识别引擎</label>
+        <select id="s-asr-adapter">
+          <option value="whisper">本地 whisper.cpp（离线，语音不出机器）</option>
+          <option value="mimo-asr">MiMo 云端语音（Token Plan 套餐按秒计费）</option>
+          <option value="ark-ws">火山方舟语音（需开按量扣费）</option>
+          <option value="openai">自定义 OpenAI 兼容 /audio/transcriptions</option>
+        </select>
+      </div>
+      <div class="frow"><label>识别语种</label>
+        <select id="s-asr-lang">
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+      <div class="hint" id="s-asr-hint"></div>
+
+      <h2 class="sec">润色模型（LLM）</h2>
+      <div class="frow"><label>供应商</label><select id="s-llm-provider"></select></div>
+      <div class="frow"><label>模型</label><input type="text" id="s-llm-model" placeholder="留空 = 用该供应商默认模型"></div>
+
+      <h2 class="sec">交叉加强（多模型投票）</h2>
+      <div class="frow"><label>投票阵容</label><div id="s-cross-chips"></div></div>
+      <div class="frow"><label>仲裁模型</label><div id="s-cross-arbiter" style="font-size:13px"></div></div>
+      <div class="hint">polish/translate 加 --cross 或工作流选 quality/cloud 时启用；全体分歧时由仲裁模型裁决。</div>
+
+      <h2 class="sec">翻译</h2>
+      <div class="frow"><label>目标语言</label>
+        <select id="s-to">
+          <option value="en">English</option><option value="ja">日本語</option>
+          <option value="ko">한국어</option><option value="zh">中文</option>
+          <option value="fr">Français</option><option value="de">Deutsch</option>
+          <option value="es">Español</option><option value="ru">Русский</option>
+        </select>
+      </div>
+
+      <h2 class="sec">工作流</h2>
+      <div class="frow"><label>当前预设</label><select id="s-workflow"></select></div>
+      <div class="hint">fast=单模型直出 · quality=交叉投票 · cloud=云端 ASR+交叉。预设可在 config.json "workflows" 增补，插件也能注册。</div>
+
+      <h2 class="sec">行为</h2>
+      <div class="frow"><label>提示音</label><input type="checkbox" id="s-sound"></div>
+      <div class="frow"><label>按住说话（PTT）</label><input type="checkbox" id="s-ptt"></div>
+      <div class="hint">PTT 需要辅助功能授权（否则只有按下没有松开，会卡在录音）。</div>
+      <div class="frow"><label>结果投放</label>
+        <select id="s-insert">
+          <option value="paste">粘贴到焦点应用</option>
+          <option value="none">只输出不粘贴</option>
+        </select>
+      </div>
+
+      <h2 class="sec">快捷键（只读）</h2>
+      <div class="frow"><label>当前键位</label><div id="s-hotkeys" style="font-size:13px"></div></div>
+      <div class="hint">改键：编辑 ~/.sayless/config.json 的 "hotkeys"（slot: dictate/translate/ask，key 为 macOS 键码，modifier: option/command/control/shift/none），保存后重启 SaylessBar 生效。</div>
+
+      <div style="margin-top:26px;display:flex;align-items:center">
+        <button class="btn" onclick="saveCfg()">保存设置</button>
+        <span id="cfgmsg"></span>
+      </div>
+      <p style="font-size:12px;color:#888;margin-top:14px">保存写入 ~/.sayless/config.json（key 等敏感字段不在此页显示、也不会被覆盖）。插件扩展见仓库 PLUGINS.md：~/.sayless/plugins/ 放 .mjs 即可定制管线。</p>
+    </div>
+  </div>
 </div>
 <div class="right">
   <div class="keys">
@@ -118,62 +195,103 @@ ul{padding-left:18px;font-size:13px;color:#cfcfcf;line-height:1.9}
   </div>
   <div class="keys">
     <div class="k">交叉加强</div><kbd>--cross</kbd>
-    <div style="font-size:12px;color:var(--sub);margin-top:6px">glm-5-turbo + deepseek-flash + MiniMax-M3 三家共识</div>
+    <div style="font-size:12px;color:var(--sub);margin-top:6px">zai + deepseek + minimax + ark + mimo 五家共识，分歧时仲裁裁决。</div>
   </div>
-  <div class="grad b"><div class="t">本地优先</div><div class="d">ASR 走本地 whisper.cpp，语音不出机器。</div></div>
-  <div class="grad p"><div class="t">自己的套餐</div><div class="d">润色与翻译走你的方舟 / 智谱 / DeepSeek / MiniMax 套餐。</div></div>
+  <div class="grad b"><div class="t">本地优先</div><div class="d">ASR 默认走本地 whisper.cpp，语音不出机器。</div></div>
+  <div class="grad p"><div class="t">自己的套餐</div><div class="d">润色与翻译走你自己的方舟 / 智谱 / DeepSeek / MiniMax / Kimi / MiMo 套餐。</div></div>
+  <div class="grad g"><div class="t">插件扩展</div><div class="d">~/.sayless/plugins/ 放 .mjs 即可定制管线（改写/供应商/工作流），见 PLUGINS.md。</div></div>
 </div>
 <script>
-function filterHist(){
-  var q = document.getElementById('hsearch').value.toLowerCase();
-  document.querySelectorAll('#histlist .hrow').forEach(function(r){
-    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
-}
-function filterHist(){
-  var q = document.getElementById('hsearch') ? document.getElementById('hsearch').value.toLowerCase() : '';
-  document.querySelectorAll('.hrow').forEach(function(r){
-    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
-}
-function saveCfg(){
-  var c = {
-    asr: { adapter: val('c-asr-adapter'), model: val('c-asr-model'), wsUrl: val('c-asr-wsurl') },
-    llm: { provider: val('c-llm-provider'), model: val('c-llm-model') },
-    translate: { to: val('c-to') },
-    sound: chk('c-sound'), ptt: chk('c-ptt')
-  };
-  dictPost({ action:'saveCfg', config: c });
-  document.getElementById('cfgmsg').textContent = '已保存 ✓';
-  setTimeout(function(){ document.getElementById('cfgmsg').textContent = ''; }, 2500);
-}
-function val(id){ return document.getElementById(id).value; }
-function chk(id){ return document.getElementById(id).checked; }
-function filterHist(){
-  var q = document.getElementById('hsearch') ? document.getElementById('hsearch').value.toLowerCase() : '';
-  document.querySelectorAll('.hrow').forEach(function(r){
-    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
-}
-function saveCfg(){
-  var c = {
-    asr: { adapter: gv('c-asr-adapter'), model: gv('c-asr-model'), wsUrl: gv('c-asr-wsurl') },
-    llm: { provider: gv('c-llm-provider'), model: gv('c-llm-model') },
-    translate: { to: gv('c-to') },
-    sound: gc('c-sound'), ptt: gc('c-ptt')
-  };
-  dictPost({ action:'saveCfg', config: c });
-  var el = document.getElementById('cfgmsg'); el.textContent = '已保存 ✓';
-  setTimeout(function(){ el.textContent=''; }, 2500);
-}
+var CFG = __CFGJSON__;
+var PROVIDERS = [__PROVIDERS__];
 function gv(id){ var e = document.getElementById(id); return e ? e.value : ''; }
 function gc(id){ var e = document.getElementById(id); return e ? e.checked : false; }
+function sv(id, v){ var e = document.getElementById(id); if (e && v != null) e.value = v; }
+function sc(id, v){ var e = document.getElementById(id); if (e && v != null) e.checked = !!v; }
 function dictPost(obj){ window.webkit.messageHandlers.dict.postMessage(JSON.stringify(obj)); }
+function filterHist(){
+  var q = gv('hsearch').toLowerCase();
+  document.querySelectorAll('.hrow').forEach(function(r){
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+var ASR_HINT = {
+  'whisper': '本地推理，离线可用；模型与二进制路径在 config.json "asr" 里配置。',
+  'mimo-asr': 'MiMo-V2.5-ASR，中英双语+方言+自动标点；地址与 key 自动取 providers.mimo-plan（tp- 套餐 key），按音频秒扣套餐额度。',
+  'ark-ws': '方舟 Agent Plan 语音大模型流式识别；需在方舟控制台开启 Agent Plan 按量扣费。',
+  'openai': '任意 OpenAI 兼容端点；在 config.json "asr" 里配 baseUrl/model/apiKey。'
+};
+function buildSettings(){
+  // 供应商下拉
+  var sel = document.getElementById('s-llm-provider');
+  sel.innerHTML = (PROVIDERS.length ? PROVIDERS : ['ark-plan']).map(function(p){
+    return '<option value="' + esc(p) + '">' + esc(p) + '</option>';
+  }).join('');
+  // 工作流下拉（config 内置 + 插件注册）
+  var wfs = Object.keys((CFG && CFG.workflows) || { fast:1, quality:1, cloud:1 });
+  document.getElementById('s-workflow').innerHTML = wfs.map(function(w){
+    return '<option value="' + esc(w) + '">' + esc(w) + '</option>';
+  }).join('');
+  // 现值回填
+  var asr = (CFG && CFG.asr) || {};
+  sv('s-asr-adapter', asr.adapter || 'whisper');
+  sv('s-asr-lang', asr.language || 'zh');
+  var llm = (CFG && CFG.llm) || {};
+  if (PROVIDERS.indexOf(llm.provider) >= 0) sv('s-llm-provider', llm.provider);
+  sv('s-llm-model', llm.model || '');
+  sv('s-to', (CFG.translate || {}).to || 'en');
+  sv('s-workflow', (CFG && CFG.activeWorkflow) || 'fast');
+  sc('s-sound', CFG.sound !== false);
+  sc('s-ptt', !!CFG.ptt);
+  sv('s-insert', ((CFG.insert || {}).mode) || 'paste');
+  asrHint();
+  // 交叉阵容（只读展示）
+  var models = ((CFG.cross || {}).models) || [];
+  document.getElementById('s-cross-chips').innerHTML = models.map(function(m){
+    return '<span class="chip">' + esc(m.provider + ' · ' + m.model) + '</span>';
+  }).join('') || '<span style="color:#888;font-size:12px">未配置</span>';
+  var arb = (CFG.cross || {}).arbiter;
+  document.getElementById('s-cross-arbiter').textContent = arb ? (arb.provider + ' · ' + arb.model) : '未配置';
+  // 快捷键（只读）
+  var MODN = { option: '⌥', command: '⌘', control: '⌃', shift: '⇧', none: '' };
+  var NAMES = { dictate: '听写', translate: '翻译', ask: '问答' };
+  var hk = (CFG && CFG.hotkeys) || {};
+  document.getElementById('s-hotkeys').innerHTML = Object.keys(NAMES).map(function(slot){
+    var h = hk[slot];
+    return h ? (NAMES[slot] + ' <kbd>' + (MODN[h.modifier] || '') + '</kbd><kbd>' + esc(h.label || String(h.key)) + '</kbd>') : '';
+  }).join(' ');
+}
+function asrHint(){
+  document.getElementById('s-asr-hint').textContent = ASR_HINT[gv('s-asr-adapter')] || '';
+}
+function stripEmpty(o){
+  var out = {};
+  Object.keys(o).forEach(function(k){
+    var v = o[k];
+    if (v && typeof v === 'object') { var s = stripEmpty(v); if (Object.keys(s).length) out[k] = s; }
+    else if (typeof v === 'boolean' || (v !== '' && v != null)) out[k] = v;
+  });
+  return out;
+}
+function saveCfg(){
+  var c = {
+    asr: { adapter: gv('s-asr-adapter'), language: gv('s-asr-lang') },
+    llm: { provider: gv('s-llm-provider'), model: gv('s-llm-model') },
+    translate: { to: gv('s-to') },
+    insert: { mode: gv('s-insert') },
+    activeWorkflow: gv('s-workflow'),
+    sound: gc('s-sound'), ptt: gc('s-ptt')
+  };
+  dictPost({ action: 'saveCfg', config: stripEmpty(c) });
+  var el = document.getElementById('cfgmsg'); el.textContent = '已保存 ✓（重新听写即生效）';
+  setTimeout(function(){ el.textContent = ''; }, 3000);
+}
 function go(i, el){
   document.querySelectorAll('.tab').forEach((t,idx)=>t.classList.toggle('on', idx===i));
-  document.querySelectorAll('.nav a').forEach((a,idx)=>a.classList.toggle('on', idx===i || (i===3&&idx===2)));
-  document.querySelectorAll('.nav a').forEach(a=>a.classList.remove('on'));
+  document.querySelectorAll('.nav a').forEach((a,idx)=>a.classList.toggle('on', idx===i));
   (el||document.querySelectorAll('.nav a')[i]).classList.add('on');
 }
+buildSettings();
 </script>
 </body></html>

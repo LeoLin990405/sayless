@@ -396,11 +396,34 @@ final class HubWindow: NSObject {
         html = html.replacingOccurrences(of: "__WORDSTATS__", with: wordStats)
         html = html.replacingOccurrences(of: "__RULES__", with: rules)
         html = html.replacingOccurrences(of: "__HEAT__", with: heat)
-        for i in 0...2 {
+        for i in 0...3 {
             let onCls = i == tab ? "on" : ""
             html = html.replacingOccurrences(of: "__T\(i)__", with: onCls)
             html = html.replacingOccurrences(of: "__VT\(i)__", with: i == tab ? "on" : "")
         }
+        // 设置页注入：providers id 列表 + 脱敏后的完整配置（apiKey 一律不出 config.json）
+        let cfgFile = NSHomeDirectory() + "/.sayless/config.json"
+        var cfgObj: [String: Any] = [:]
+        if let raw = try? String(contentsOfFile: cfgFile, encoding: .utf8),
+           let j = try? JSONSerialization.jsonObject(with: raw.data(using: .utf8)!) as? [String: Any] {
+            cfgObj = j
+        }
+        func sanitized(_ o: Any) -> Any {
+            if let d = o as? [String: Any] {
+                var out: [String: Any] = [:]
+                for (k, v) in d where k != "apiKey" { out[k] = sanitized(v) }
+                return out
+            }
+            if let a = o as? [Any] { return a.map { sanitized($0) } }
+            return o
+        }
+        let providerIds = ((cfgObj["providers"] as? [String: Any]) ?? [:]).keys.sorted()
+        var cfgJson = "{}"
+        if let d = try? JSONSerialization.data(withJSONObject: sanitized(cfgObj)) {
+            cfgJson = String(data: d, encoding: .utf8) ?? "{}"
+        }
+        html = html.replacingOccurrences(of: "__CFGJSON__", with: cfgJson.replacingOccurrences(of: "</", with: "<\\/"))
+        html = html.replacingOccurrences(of: "__PROVIDERS__", with: providerIds.map { "\"\($0)\"" }.joined(separator: ","))
         return html
     }
     private func buildHeat(_ days: Set<String>) -> String {
@@ -422,29 +445,7 @@ final class HubWindow: NSObject {
         return cells
     }
 }
-    // MARK: - 设置保存
-    func handleCfgMessage(_ body: Any) {
-        guard let bodyStr = body as? String,
-              let bodyData = bodyStr.data(using: .utf8),
-              let msg = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any],
-              msg["action"] as? String == "saveCfg",
-              let cfgNew = msg["config"] as? [String: Any] else { return }
-        let cfgFile = NSHomeDirectory() + "/.sayless/config.json"
-        guard let raw = try? String(contentsOfFile: cfgFile, encoding: .utf8),
-              var cfg = (try? JSONSerialization.jsonObject(with: raw.data(using: .utf8)!)) as? [String: Any] else { return }
-        for (k, v) in cfgNew {
-            if let sub = v as? [String: Any], let dstSub = cfg[k] as? [String: Any] {
-                var merged = dstSub
-                for (kk, vv) in sub { merged[kk] = vv }
-                cfg[k] = merged
-            } else { cfg[k] = v }
-        }
-        if let out = try? JSONSerialization.data(withJSONObject: cfg, options: [.prettyPrinted]) {
-            try? out.write(to: URL(fileURLWithPath: cfgFile))
-        }
-        logLine("cfg saved")
-        // 页面在下次打开时自动刷新
-    }
+    // 设置保存走 userContentController 的 "saveCfg" case（深合并进 config.json，保留 0600 权限）
 
 extension HubWindow: WKScriptMessageHandler {
     func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -481,6 +482,26 @@ extension HubWindow: WKScriptMessageHandler {
             var hot = (d["hotwords"] as? [String]) ?? []
             hot.removeAll { $0 == w }
             d["hotwords"] = hot; dirty = true
+        case "saveCfg":
+            // 深合并：表单只提交它有的字段，key 等其余字段原样保留
+            if let cfgNew = j["config"] as? [String: Any] {
+                let cfgFile = NSHomeDirectory() + "/.sayless/config.json"
+                if let raw = try? String(contentsOfFile: cfgFile, encoding: .utf8),
+                   var cfg = (try? JSONSerialization.jsonObject(with: raw.data(using: .utf8)!)) as? [String: Any] {
+                    for (k, v) in cfgNew {
+                        if let sub = v as? [String: Any], let dstSub = cfg[k] as? [String: Any] {
+                            var merged = dstSub
+                            for (kk, vv) in sub { merged[kk] = vv }
+                            cfg[k] = merged
+                        } else { cfg[k] = v }
+                    }
+                    if let out = try? JSONSerialization.data(withJSONObject: cfg, options: [.prettyPrinted]) {
+                        try? out.write(to: URL(fileURLWithPath: cfgFile))
+                        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cfgFile)
+                    }
+                    logLine("cfg saved from hub")
+                }
+            }
         default: break
         }
         if dirty {
@@ -560,6 +581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "请求辅助功能授权…", action: #selector(requestAX), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "登录时启动", action: #selector(toggleLoginItem), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "听写历史…", action: #selector(showHistoryTab), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "设置…", action: #selector(showSettingsTab), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "打开词语库…", action: #selector(openDict), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "查看日志…", action: #selector(openLog), keyEquivalent: ""))
         menu.addItem(.separator())
@@ -569,8 +591,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loadAppConfig()
         registerHotkeys()
         checkAX()
-        logLine("launched v4.2 ptt=\(ptt)")
-        if !ptt { } // toggle 模式默认
+        logLine("launched v4.4 ptt=\(ptt)")
+        // 调试/自动化口子：SAYLESS_SHOW_HUB=<tab> 启动即开面板（0首页 1历史 2词典 3设置）
+        if let hubArg = ProcessInfo.processInfo.environment["SAYLESS_SHOW_HUB"], let t = Int(hubArg) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.hub.show(tab: t) }
+        }
     }
 
     func loadAppConfig() {
@@ -759,6 +784,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = AXIsProcessTrustedWithOptions(opts)
     }
     @objc func showHistoryTab() { hub.show(tab: 1) }
+    @objc func showSettingsTab() { hub.show(tab: 3) }
     @objc func openDict() { NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory() + "/.sayless/dictionary.json")) }
     @objc func openLog() { NSWorkspace.shared.open(URL(fileURLWithPath: logPath)) }
 
