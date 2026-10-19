@@ -673,10 +673,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.environment = childEnv
         if let input { p.standardInput = Pipe(); }
         let outPipe = Pipe(); p.standardOutput = outPipe
+        let errPipe = Pipe(); p.standardError = errPipe
         do { try p.run() } catch { logLine("run \(path) fail: \(error.localizedDescription)"); return "" }
         if let input { (p.standardInput as? Pipe)?.fileHandleForWriting.write(input.data(using: .utf8)!); (p.standardInput as? Pipe)?.fileHandleForWriting.closeFile() }
         let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
+        if p.terminationStatus != 0, !path.contains("pbpaste") {
+            logLine("run \(path) exit=\(p.terminationStatus) err=\(String(data: errData, encoding: .utf8) ?? "")")
+        }
         return String(data: data, encoding: .utf8) ?? ""
     }
 
@@ -709,20 +714,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     static var captureSlot: String?
     static var lastFire = Date.distantPast
+    static var tapActive = false // tap 启用后 Carbon 兜底退场，避免一次按键双派发
     func hotkey(_ id: Int, keyUp: Bool = false) {
         if ptt { // 按住说话：按下开始，松开结束
             if keyUp { if busy { stopAndTranscribe() } }
             else if !busy { pendingMode = id; capsule.show(mode: id); startRecording(); beep("Tink") }
             return
         }
+        if keyUp { return } // toggle 模式只认按下，松开不算第二次
         let now = Date()
         guard now.timeIntervalSince(AppDelegate.lastFire) > 0.25 else { return }
         AppDelegate.lastFire = now
-        if busy { stopAndTranscribe(); beep("Pop"); return }
+        if busy { stopAndTranscribe(); beep("Pop"); logLine("hotkey stop busy=\(busy)") ; return }
         pendingMode = id
         capsule.show(mode: id)
         startRecording()
         beep("Tink")
+        logLine("hotkey start id=\(id)")
     }
     func cancelRecording() {
         stopWork?.cancel()
@@ -765,6 +773,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         tapPort = port
+        AppDelegate.tapActive = true
         CGEvent.tapEnable(tap: port, enable: true)
         tapSource = CFMachPortCreateRunLoopSource(nil, port, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), tapSource, .defaultMode)
@@ -778,6 +787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             var hkID = EventHotKeyID()
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
             let hb = Unmanaged<HotkeyBox>.fromOpaque(userData!.assumingMemoryBound(to: HotkeyBox.self)).takeUnretainedValue()
+            guard !AppDelegate.tapActive else { return noErr } // tap 已接管，Carbon 不再派发
             logLine("hotkey event id=\(hkID.id)")
             hb.dispatch(Int(hkID.id))
             return noErr
