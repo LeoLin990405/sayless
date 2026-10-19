@@ -21,8 +21,8 @@
 | 首页：洞察 + 贡献热力图 | 词典：可视化编辑 + 分应用词层 |
 |---|---|
 | ![首页](docs/screenshots/hub-home.png) | ![词典](docs/screenshots/hub-dict.png) |
-| **设置页：ASR / 模型 / 交叉阵容 / 工作流** | |
-| ![设置](docs/screenshots/hub-settings.png) | |
+| **设置：ASR / 润色模型 / 交叉阵容 / 翻译** | **设置：工作流 / 行为 / 快捷键** |
+| ![设置上](docs/screenshots/hub-settings-top.png) | ![设置下](docs/screenshots/hub-settings-bottom.png) |
 
 ## 特性一览
 
