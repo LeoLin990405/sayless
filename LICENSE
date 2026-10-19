@@ -1,21 +1,24 @@
-MIT License
+Sayless — 仅供学习研究的逆向工程项目（非商用）
 
 Copyright (c) 2026 Zhongyue Lin (LeoLin990405)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+一、项目性质
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+本项目是对 Typeless 应用进行逆向工程与交互分析后的学习性复现成果，
+采用干净房间（clean-room）方式独立实现，不包含原应用的任何代码、
+资源或数据。与 Typeless 原开发者无任何隶属、合作或授权关系。
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+二、授权条款
+
+1. 本项目仅供个人学习、研究与交流使用。
+2. 严禁任何形式的商业使用，包括但不限于：出售、付费分发、SaaS 化
+   服务、闭源二次发行、或并入任何商业产品。
+3. 在保留本声明且不用于商业目的的前提下，允许查看、克隆、修改与
+   非商业性地分享本项目。
+4. 本项目按"现状"提供，不附带任何明示或默示的担保。使用产生的
+   一切风险由使用者自行承担。
+
+三、其他
+
+如原作者认为本仓库的内容侵犯其合法权益，请提出，将及时处理
+（删除或调整相关内容）。
