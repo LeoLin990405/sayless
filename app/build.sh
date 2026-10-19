@@ -9,7 +9,15 @@ swiftc -O SaylessBar.swift -o SaylessBar.app/Contents/MacOS/SaylessBar 2>&1 | gr
 cp Info.plist SaylessBar.app/Contents/
 mkdir -p SaylessBar.app/Contents/Resources
 cp hub.html SaylessBar.app/Contents/Resources/
-codesign --force -s - SaylessBar.app
+# 签名：优先用持久身份（Sayless Local Dev 证书，TCC 授权跨重装保留），否则退回 ad-hoc（每次重装授权失效）
+IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk '/Sayless Local Dev/{print $2; exit}')
+if [ -n "${IDENTITY}" ]; then
+  codesign --force -s "$IDENTITY" SaylessBar.app
+  echo "signed with persistent identity: Sayless Local Dev"
+else
+  codesign --force -s - SaylessBar.app
+  echo "signed ad-hoc (no persistent identity found — TCC grants will reset on reinstall)"
+fi
 DEST="${1:-/Applications/SaylessBar.app}"
 rm -rf "$DEST"
 cp -R SaylessBar.app "$DEST"
