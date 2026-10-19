@@ -9,6 +9,19 @@
       ──▶ LLM 润色（单模型或 N 家交叉投票）──▶ 词语库兜底 ──▶ 剪贴板 + ⌘V
 ```
 
+## 界面速览
+
+<p align="center">
+  <img src="docs/screenshots/capsule.png" width="520" alt="录音胶囊"><br/>
+  <sub>录音胶囊：✕ 取消 · 实时波形 · ✓ 完成 —— Typeless 1:1 形态</sub>
+</p>
+
+| 首页：洞察 + 贡献热力图 | 词典：可视化编辑 + 分应用词层 |
+|---|---|
+| ![首页](docs/screenshots/hub-home.png) | ![词典](docs/screenshots/hub-dict.png) |
+| **设置页：ASR / 模型 / 交叉阵容 / 工作流** | |
+| ![设置](docs/screenshots/hub-settings.png) | |
+
 ## 特性一览
 
 - **⌥Space 说话即打字**：菜单栏常驻，按住热键说话，松手文本自动润色并粘贴进当前焦点应用；⌥T 说话即翻译、⌥Q 说话即联网问答，键位可在 config 里改
@@ -18,6 +31,42 @@
 - **自我学习**：`sayless learn` 对比原文/改稿自动生成词条，`--mine` 从历史挖掘高频修正
 - **完全可定制**：`~/.sayless/plugins/` 放一个 `.mjs` 即可接管管线任意环节（见 [PLUGINS.md](PLUGINS.md)）
 - **菜单栏面板（hub）**：洞察统计 + 贡献热力图 / 可搜索历史 / 可视化词典 / 完整设置页，Typeless 1:1 布局
+
+```mermaid
+flowchart LR
+    Mic[麦克风] --> Cap[录音胶囊<br/>AVAudioEngine 直录]
+    Cap --> ASR{ASR 适配器}
+    ASR -->|whisper 默认| W["whisper.cpp（本地·离线）"]
+    ASR -->|可选云端| C[MiMo / 方舟 / OpenAI 兼容]
+    W --> Dict[词语库确定性替换<br/>热词 + 分应用层]
+    C --> Dict
+    Dict --> LLM{润色策略}
+    LLM -->|fast| S[单模型直出]
+    LLM -->|quality| X[多模型交叉投票 + 仲裁]
+    S --> D2[词语库兜底]
+    X --> D2
+    D2 --> Paste[剪贴板 + ⌘V<br/>进焦点应用]
+    Paste --> Hist[(history.jsonl<br/>洞察 + 热力图)]
+```
+
+## 与 Typeless 对比
+
+交互形态致敬 [Typeless](https://typeless.app)（浮条与 hub 按 1:1 复刻），代码为**完全独立的干净实现**（不含其任何代码与资源）。以下是产品定位上的实质差异（对比基于 Typeless 2.8.1 的公开行为与本机观察，2026-10）：
+
+| 维度 | Typeless | Sayless |
+|---|---|---|
+| 定位 | 商业订阅产品 | 开源自托管工具（MIT，软件免费） |
+| 模型费用 | 订阅费内含 | 走**你自己的套餐**（方舟 / 智谱 / DeepSeek / Kimi / MiMo…），花多少看得到 |
+| 语音识别 | 云端 ASR，语音上传服务方 | 默认**本地 whisper.cpp 离线**，语音不出机器；可切 MiMo / 方舟云端 |
+| 质量机制 | 单一管线 + 服务端质量网关 | 客户端 **5 家模型交叉投票 + 仲裁**，每条听写都是多数派共识 |
+| 个性化 | 自定义词表 | 确定性替换 + 风格规则 + **按前台应用分层** + `learn` 自动学习闭环 |
+| 扩展性 | 闭源，不可扩展 | **插件 API**：3 个管线钩子 + 自定义供应商 + 自定义工作流 |
+| 数据归属 | 听写历史存于服务方 | 全部本地：历史 / 词库 / 反馈都在 `~/.sayless/`，随时导出删除 |
+| 透明度 | 闭源 | 源码可审计；每个模型端点可 `sayless doctor` 实测连通与鉴权 |
+| 交互形态 | 浮条 + hub 面板 | 同形态 1:1（✕/波形/✓ 胶囊、洞察 + 热力图 hub、四页导航） |
+| 平台 | macOS | macOS，CLI 与菜单栏 App 可完全独立使用 |
+
+一句话：**Typeless 卖的是省心，Sayless 给的是控制权**——模型、数据、词库、管线每一环都握在自己手里。
 
 ## 快速开始
 
@@ -94,6 +143,25 @@ cd app && ./build.sh  # swiftc 编译 + 代码签名 + 安装 /Applications 并�
 
 ### 交叉投票（`--cross`）
 
+```mermaid
+flowchart TB
+    In[原文] --> M1[zai · glm-5-turbo]
+    In --> M2[deepseek · deepseek-flash]
+    In --> M3[minimax · MiniMax-M3]
+    In --> M4[ark-plan · doubao-turbo]
+    In --> M5[mimo-plan · v2.6-flash]
+    M1 --> N[归一化 → 字符二元组 Dice 相似度聚类<br/>阈值 0.82 · 逐模型 30s 熔断]
+    M2 --> N
+    M3 --> N
+    M4 --> N
+    M5 --> N
+    N --> Q{最大簇 ≥ 2 ？}
+    Q -->|是| Win[多数共识胜出]
+    Q -->|否| Arb[仲裁模型<br/>deepseek-v4-flash 裁决]
+    Win --> Out[定稿 → 历史 → 粘贴]
+    Arb --> Out
+```
+
 `cross.models` 里每家并行出稿（逐模型 30s 熔断）→ 归一化字符二元组 Dice 相似度聚类（阈值 `similarity: 0.82`）→ 最大簇 ≥2 即共识，全分歧时 `cross.arbiter` 裁决。当前阵容：zai + deepseek + minimax + ark-plan + mimo-plan 五家，实测常全票。
 
 ### 工作流
@@ -120,6 +188,19 @@ cd app && ./build.sh  # swiftc 编译 + 代码签名 + 安装 /Applications 并�
 ## 插件（开发口子）
 
 不改源码定制管线：`~/.sayless/plugins/*.mjs` 自动加载，可导出 `onTranscript / onPolish / onInsert` 文本钩子、`providers` 自定义供应商、`workflows` 工作流预设。按应用切语气、行业术语后处理、听写同步外部系统等食谱见 **[PLUGINS.md](PLUGINS.md)**，`sayless plugin` 查看加载状态。
+
+```mermaid
+flowchart LR
+    A[ASR + 词典] -->|onTranscript| B[LLM 润色 / 投票]
+    B -->|onPolish| C[定稿 · 历史落盘]
+    C -->|onInsert| D[剪贴板 + ⌘V]
+    P[plugins/*.mjs] -.->|providers 注册| R[供应商注册表]
+    P -.->|workflows 追加| W[工作流预设]
+    P -.->|三个文本钩子| A
+    P -.-> B
+    P -.-> C
+    P -.-> D
+```
 
 ## ASR 引擎
 
