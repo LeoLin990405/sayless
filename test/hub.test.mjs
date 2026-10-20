@@ -1,0 +1,127 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const TPL = fs.readFileSync(path.join(ROOT, 'app', 'hub.html'), 'utf8');
+const CHROME = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+function demoData() {
+  return {
+    version: '4.5.0',
+    dataDir: '/tmp/sayless-demo',
+    initialTab: 0,
+    stats: {
+      chars: 42, entries: 2, activeDays: 2, streak: 2, longestStreak: 2, avgChars: 21,
+      today: '2026-10-20', recordings: 1, recordingsBytes: 2000,
+      modes: { dictate: 1, 'translate:en': 1 }, apps: { Mail: 1 }
+    },
+    days: ['2026-10-19', '2026-10-20'],
+    history: [
+      { ts: '2026-10-20T12:00:00.000Z', mode: 'dictate', out: '第一条 <script>alert(1)</script>', app: 'Mail', rec: 'a.wav', inserted: true },
+      { ts: '2026-10-19T11:00:00.000Z', mode: 'translate:en', out: 'Second entry', app: 'Slack', rec: '', inserted: false }
+    ],
+    dict: {
+      replacements: [{ from: '摆链', to: 'Bailian' }],
+      hotwords: ['ZCode'],
+      styleRules: ['删除语气词'],
+      apps: { Mail: { hotwords: ['方舟'], replacements: [{ from: '摆链', to: 'Bailian' }] } }
+    },
+    cfg: {
+      providers: { 'ark-plan': { baseUrl: 'https://example.invalid/v1' }, deepseek: { baseUrl: 'https://example.invalid/v1' } },
+      asr: { adapter: 'whisper', language: 'zh', whisperBin: '/opt/homebrew/bin/whisper-cli', whisperModel: '/tmp/ggml.bin', filterHallucinations: true },
+      llm: { provider: 'ark-plan', model: 'mock-model', temperature: 0, retries: 2 },
+      translate: { to: 'en', provider: 'deepseek', model: 'mock-tr' },
+      ask: { provider: 'ark-plan', model: 'mock-model', engines: ['bing', 'ddg'], maxResults: 5, proxy: '' },
+      cross: { models: [{ provider: 'ark-plan', model: 'a' }, { provider: 'deepseek', model: 'b' }], arbiter: { provider: 'deepseek', model: 'arb' }, similarity: 0.82, timeoutMs: 30000 },
+      insert: { mode: 'paste', restoreClipboard: true },
+      sound: true, ptt: false,
+      hotkeys: { dictate: { key: 49, modifier: 'option', label: 'Space' }, translate: { key: 17, modifier: 'option', label: 'T' }, ask: { key: 12, modifier: 'option', label: 'Q' } },
+      workflows: { fast: {}, quality: {}, cloud: {} },
+      activeWorkflow: 'fast'
+    },
+    providers: ['ark-plan', 'deepseek'],
+    providerKeys: { 'ark-plan': true, deepseek: false },
+    env: { node: 'v22.0.0', whisperBinExists: true, whisperModelExists: true, ffmpegExists: true, configMode: '600', plugins: [] }
+  };
+}
+
+test('hub 模板只有一个数据占位符，注入后是合法 JS', () => {
+  const placeholders = TPL.match(/__[A-Z0-9_]+__/g) || [];
+  assert.deepEqual([...new Set(placeholders)], ['__DATAJSON__']);
+  assert.equal(placeholders.length, 1);
+  const script = TPL.match(/<script>([\s\S]*)<\/script>/)[1];
+  const safe = JSON.stringify(demoData()).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+  const js = script.replace('__DATAJSON__', safe);
+  assert.doesNotThrow(() => new Function(js));
+});
+
+test('hub 注入 JSON 不会闭合 script 标签', () => {
+  const evil = demoData();
+  evil.history[0].out = '</script><script>window.pwned=1</script>';
+  const safe = JSON.stringify(evil).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+  const html = TPL.replace('__DATAJSON__', safe);
+  assert.equal((html.match(/<script>/g) || []).length, 1);
+  assert.equal((html.match(/<\/script>/g) || []).length, 1);
+  assert.ok(safe.includes('\\u003c/script\\u003e'));
+});
+
+test('hub 在 Chrome 中渲染且无 JS 错误', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-test-'));
+  try {
+    const data = demoData();
+    const safe = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const htmlPath = path.join(dir, 'hub.html');
+    fs.writeFileSync(htmlPath, TPL.replace('__DATAJSON__', safe));
+    const r = spawnSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
+      '--dump-dom', `file://${htmlPath}`
+    ], { encoding: 'utf8', timeout: 30000 });
+    assert.equal(r.status, 0, r.stderr);
+    const dom = r.stdout || '';
+    assert.doesNotMatch(dom, /id="js-error"/);
+    assert.match(dom, /第一条/);
+    assert.match(dom, /Bailian/);
+    assert.match(dom, /Home|首页|说话，不要打字/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
+  try {
+    const empty = {
+      version: '4.5.0', dataDir: '/tmp/fresh', initialTab: 0,
+      stats: {}, days: [], history: [],
+      dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
+      cfg: {}, providers: [], providerKeys: {}, env: {}
+    };
+    const safe = JSON.stringify(empty).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const htmlPath = path.join(dir, 'hub.html');
+    fs.writeFileSync(htmlPath, TPL.replace('__DATAJSON__', safe));
+    const r = spawnSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
+      '--dump-dom', `file://${htmlPath}`
+    ], { encoding: 'utf8', timeout: 30000 });
+    assert.equal(r.status, 0, r.stderr);
+    const dom = r.stdout || '';
+    assert.doesNotMatch(dom, /id="js-error"/);
+    assert.match(dom, /说话，不要打字/);
+    assert.match(dom, /class="tab on"/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hub 的模型留空提交空字符串（配合 CLI 的 provider 默认模型）', () => {
+  assert.match(TPL, /var modelValue = function \(id\)/);
+  assert.doesNotMatch(TPL, /modelOrNull|model: .*null/);
+  assert.match(TPL, /model: modelValue\('#s-llm-model'\)/);
+});

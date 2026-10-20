@@ -29,7 +29,8 @@ export const providers = {
 };
 // 之后 config.json → llm.provider = "my-llm" 即可启用；apiKey 写 providers.my-llm.apiKey
 
-// 2) 追加工作流预设（config.activeWorkflow 或 --workflow 切换）
+// 2) 追加工作流预设（显式 `sayless ... --workflow mine` 应用完整预设；
+//    持久 activeWorkflow 只应用 cross 策略，避免覆盖设置页选的 ASR/模型）
 export const workflows = {
   mine: { asr: 'whisper', llm: { provider: 'my-llm' }, cross: true },
 };

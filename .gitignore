@@ -1,5 +1,6 @@
 node_modules/
 app/SaylessBar.app/
+.tmp/
 *.wav
 *.log
 .DS_Store
