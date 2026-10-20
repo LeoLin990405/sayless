@@ -4,16 +4,19 @@
 //
 // 用法:
 //   sayless init                          生成/补全 ~/.sayless/{config.json,dictionary.json}
-//   sayless run [--sec N] [--no-insert] [--raw] [--translate <lang>] [--ask]
+//   sayless run [--sec N] [--no-insert] [--raw] [--translate <lang>] [--ask] [--workflow <id>] [--cross]
 //   sayless rec  [--sec N] [-o file]      仅录音（wav 16k mono）
-//   sayless asr  <file.wav>               仅转写
-//   sayless polish "<text>" [--dry-run]   润色（词语库→LLM→词语库）
-//   sayless translate "<text>" [--to en] [--say]   翻译；--say 先录音
+//   sayless asr  <file.wav>               仅转写（走当前 ASR 适配器）
+//   sayless polish "<text>" [--dry-run] [--cross] [--provider <id>] [--model <id>]
+//   sayless translate "<text>" [--to en] [--say] [--cross]
 //   sayless ask "<问题>" [--say]          联网检索+回答（带引用）；--say 先录音
-//   sayless transcribe <wav> [--translate <lang>] [--ask] [--no-insert] [--raw]
+//   sayless transcribe <wav> [--translate <lang>] [--ask] [--no-insert] [--raw] [--force] [--app <name>]
 //   sayless insert "<text>"               粘贴进焦点应用
-//   sayless dict add|list                 词语库
-//   sayless doctor                        探测路由/设备
+//   sayless dict add|del|add-hot|del-hot|import|stats    词语库管理
+//   sayless learn "<原文>" "<改稿>"        智能 diff 生成词条；--last 对比上一条；--mine 挖掘高频模式
+//   sayless history [-n 20]               听写历史
+//   sayless plugin                        已加载插件及钩子
+//   sayless doctor                        体检：链路/供应商分组实测/录音设备
 // 配置: ~/.sayless/config.json；providers 注册各模型供应商，llm/translate/ask 各自选 provider+model。
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -60,7 +63,7 @@ const DEFAULT_CFG = {
   },
   llm: { provider: 'ark-plan', model: 'doubao-seed-2-1-turbo-260628', temperature: 0 },
   translate: { to: 'en', provider: 'ark-plan', model: 'doubao-seed-2-1-turbo-260628' },
-  ask: { provider: 'ark-plan', model: 'doubao-seed-2-1-turbo-260628', engines: ['bing', 'ddg'], maxResults: 5, proxy: 'http://127.0.0.1:7897' },
+  ask: { provider: 'ark-plan', model: 'doubao-seed-2-1-turbo-260628', engines: ['bing', 'ddg'], maxResults: 5, proxy: '' },
   // 交叉加强：多模型并行出稿 → 相似度聚类 → 多数一致取胜，全分歧时仲裁模型裁决
   cross: {
     models: [
@@ -505,7 +508,7 @@ function insertText(text) {
 }
 
 // ---- 统一管线 ----
-async function finishPipeline(wavPath, { insert = true, raw = false, translateTo = null, askMode = false, provider = null, model = null, cross = false, app = null } = {}) {
+async function finishPipeline(wavPath, { insert = true, raw = false, translateTo = null, askMode = false, provider = null, model = null, cross = false, app = null, force = false } = {}) {
   const cfg = ensureInit();
   await activatePlugins(cfg);
   let rawText = await asr(wavPath);
@@ -513,7 +516,7 @@ async function finishPipeline(wavPath, { insert = true, raw = false, translateTo
   const ctx = { mode, app, wavPath, cfg };
   rawText = await runHook('onTranscript', rawText, ctx) || rawText;
   const speech = rawText.replace(/[。，,.！!？?、；;：:\s()（）【】\[\]〔〕]/g, '');
-  if (speech.length <= 1) {
+  if (speech.length <= 1 && !force) {
     console.error('✗ 未识别到语音内容（录太短或纯静音），已跳过');
     return;
   }
@@ -590,7 +593,7 @@ function saveDict(d) { fs.writeFileSync(DICT, JSON.stringify(d, null, 2)); }
 const [, , cmd, ...rest] = process.argv;
 const arg = (name, def) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : def; };
 const has = (name) => rest.includes(name);
-const FLAGGED = new Set(['--sec', '-o', '--raw', '--no-insert', '--dry-run', '--translate', '--to', '--ask', '--say', '--provider', '--model', '--cross', '--workflow', '-n']);
+const FLAGGED = new Set(['--sec', '-o', '--raw', '--no-insert', '--dry-run', '--translate', '--to', '--ask', '--say', '--provider', '--model', '--cross', '--workflow', '--force', '--app', '-n']);
 const positional = () => rest.filter((v, i) => !FLAGGED.has(v) && !['--sec', '-o', '--translate', '--to', '--provider', '--model', '--app'].includes(rest[i - 1]));
 const overrides = () => ({ provider: arg('--provider'), model: arg('--model') });
 
@@ -622,7 +625,7 @@ try {
   }
   else if (cmd === 'transcribe') {
     await finishPipeline(positional()[0] || TMP_WAV, {
-      insert: !has('--no-insert'), raw: has('--raw'),
+      insert: !has('--no-insert'), raw: has('--raw'), force: has('--force'),
       translateTo: has('--translate') ? (arg('--translate') || (ensureInit().translate?.to ?? 'en')) : null,
       askMode: has('--ask'), cross: has('--cross'), app: arg('--app') || null, ...overrides()
     });

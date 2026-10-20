@@ -78,7 +78,12 @@ git clone https://github.com/LeoLin990405/sayless.git && cd sayless
 ln -sf "$PWD/sayless.mjs" /opt/homebrew/bin/sayless
 
 sayless init          # 生成 ~/.sayless/{config.json, dictionary.json}
-sayless doctor        # 体检：ASR/链路/各家供应商 key/录音设备
+
+# 下载 whisper 基座模型（148MB，必下；网络不畅可把域名换成 hf-mirror.com 镜像）
+mkdir -p ~/.sayless && curl -L -o ~/.sayless/ggml-base.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+
+sayless doctor        # 体检：ASR/链路/各家供应商 key/录音设备（模型缺失会标注）
 sayless run           # 说话，回车停止 → 转写+润色+粘贴
 ```
 
