@@ -277,11 +277,25 @@ async function asr(wavPath) {
   const cfg = ensureInit();
   const key = process.env.SAYLESS_API_KEY || cfg.asr.apiKey;
   if (cfg.asr.adapter === 'whisper') {
+    const modelPath = cfg.asr.whisperModel || '';
+    if (!fs.existsSync(modelPath)) {
+      console.error(`✗ whisper 模型缺失：${modelPath}`);
+      console.error('  下载：mkdir -p ~/.sayless && curl -L -o ~/.sayless/ggml-base.bin \\');
+      console.error('        https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin');
+      console.error('  （网络不畅可把域名换成 hf-mirror.com 镜像；也可以在设置页把 ASR 引擎切成 MiMo 云端）');
+      process.exit(3);
+    }
     if (fs.statSync(wavPath).size < 20000) { console.error('· 音频过短（<0.6s），跳过识别'); return ''; }
     const { execFileSync } = await import('node:child_process');
-    const out = execFileSync(cfg.asr.whisperBin || '/opt/homebrew/bin/whisper-cli',
-      ['-m', cfg.asr.whisperModel, '-l', cfg.asr.language || 'zh', '-nt', '-np', '-f', wavPath],
-      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+    let out;
+    try {
+      out = execFileSync(cfg.asr.whisperBin || '/opt/homebrew/bin/whisper-cli',
+        ['-m', modelPath, '-l', cfg.asr.language || 'zh', '-nt', '-np', '-f', wavPath],
+        { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      console.error('✗ whisper 转写失败：' + String(e.message).split('\n')[0]);
+      process.exit(3);
+    }
     const t = out.replace(/\s+/g, ' ').trim();
     if (/^[（(【\[〔].*[）)\]〕]$/.test(t)) return ''; // 整段括号包裹 = 静音幻觉标记
     return t;
