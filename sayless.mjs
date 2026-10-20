@@ -230,10 +230,13 @@ async function chat(cfg, providerName, model, messages, temperature = 0, signal)
   const p = resolveProvider(cfg, providerName);
   const m = model || p.model;
   if (!m) throw new Error(`provider ${providerName} 未指定 model（--model 或 config 里补）`);
+  if (!p.apiKey) throw new Error(`provider ${providerName} 缺 apiKey（设置页写入或 config.json）`);
+  // 单模型直出也要熔断：默认 45s，可用 cross.timeoutMs 调
+  const fused = signal ?? AbortSignal.timeout(cfg.cross?.timeoutMs ? cfg.cross.timeoutMs + 15000 : 45000);
   const res = await fetch(p.baseUrl + (p.chatPath || '/chat/completions'), {
     method: 'POST',
     headers: { Authorization: `Bearer ${p.apiKey}`, 'Content-Type': 'application/json' },
-    signal,
+    signal: fused,
     body: JSON.stringify({ model: m, temperature, messages })
   });
   const body = await res.text();
@@ -532,6 +535,10 @@ async function finishPipeline(wavPath, { insert = true, raw = false, translateTo
   const mode = askMode ? 'ask' : (translateTo ? `translate:${translateTo}` : (raw ? 'raw' : 'dictate'));
   const ctx = { mode, app, wavPath, cfg };
   rawText = await runHook('onTranscript', rawText, ctx) || rawText;
+  if (rawText.trim().length === 0) {
+    console.error('✗ 语音识别结果为空（纯静音或识别失败），已跳过');
+    return;
+  }
   const speech = rawText.replace(/[。，,.！!？?、；;：:\s()（）【】\[\]〔〕]/g, '');
   if (speech.length <= 1 && !force) {
     console.error('✗ 未识别到语音内容（录太短或纯静音），已跳过');
@@ -545,9 +552,20 @@ async function finishPipeline(wavPath, { insert = true, raw = false, translateTo
   out = await runHook('onPolish', String(out), ctx);
   out = await runHook('onInsert', out, ctx);
   console.error(`识别: ${rawText}\n结果: ${out}`);
+  // 录音归档：每条听写的 wav 按 ts 存档（回放/重转写用），仅保留最近 200 条
+  let rec;
+  try {
+    const recDir = path.join(DIR, 'recordings');
+    fs.mkdirSync(recDir, { recursive: true });
+    rec = path.join(recDir, `${new Date().toISOString().replace(/[:.]/g, '-')}.wav`);
+    fs.copyFileSync(wavPath, rec);
+    const old = fs.readdirSync(recDir).filter(f => f.endsWith('.wav'))
+      .map(f => ({ f, t: fs.statSync(path.join(recDir, f)).mtimeMs })).sort((a, b) => b.t - a.t);
+    for (const x of old.slice(200)) fs.rmSync(path.join(recDir, x.f), { force: true });
+  } catch { /* 归档失败不阻塞主流程 */ }
   try {
     fs.appendFileSync(path.join(DIR, 'history.jsonl'),
-      JSON.stringify({ ts: new Date().toISOString(), mode, app: app || undefined, raw: rawText.slice(0, 500), out: String(out).slice(0, 1000), inserted: insert }) + '\n');
+      JSON.stringify({ ts: new Date().toISOString(), mode, app: app || undefined, raw: rawText.slice(0, 500), out: String(out).slice(0, 1000), inserted: insert, rec }) + '\n');
   } catch { /* 历史落盘失败不阻塞主流程 */ }
   if (insert) insertText(out); else console.log(out);
 }

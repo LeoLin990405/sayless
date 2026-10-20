@@ -312,7 +312,7 @@ final class HubWindow: NSObject {
                 let out = o["out"] as? String ?? ""
                 totalChars += out.count
                 days.insert(day)
-                entries.append(["ts": ts, "mode": o["mode"] as? String ?? "-", "out": out])
+                entries.append(["ts": ts, "mode": o["mode"] as? String ?? "-", "out": out, "rec": o["rec"] as? String ?? ""])
             }
         }
         entries.reverse()
@@ -399,7 +399,11 @@ final class HubWindow: NSObject {
         let histRows = entries.prefix(60).map { e -> String in
             let ts = (e["ts"] ?? "").replacingOccurrences(of: "T", with: " ").prefix(19)
             let out = (e["out"] ?? "").replacingOccurrences(of: "<", with: "&lt;")
-            return "<div class='row'><span class='ts'>\(ts)</span><span class='md'>\(e["mode"] ?? "")</span><span class='ot'>\(out)</span></div>"
+            let rec = e["rec"] ?? ""
+            let actions = rec.isEmpty ? "" :
+                " <a style=\"color:#60a5fa;cursor:pointer\" onclick=\"dictPost({action:'playAudio',file:'\(rec)'})\">▶</a>" +
+                " <a style=\"color:#facc15;cursor:pointer\" onclick=\"dictPost({action:'retranscribe',file:'\(rec)'})\">↻</a>"
+            return "<div class='row'><span class='ts'>\(ts)</span><span class='md'>\(e["mode"] ?? "")</span><span class='ot'>\(out)\(actions)</span></div>"
         }.joined()
         var html = tpl
         html = html.replacingOccurrences(of: "__STAT1__", with: "\(totalChars)")
@@ -547,6 +551,12 @@ extension HubWindow: WKScriptMessageHandler {
                     logLine("apiKey written for \(prov)")
                 }
             }
+        case "playAudio":
+            let pf = j["file"] as? String ?? ""
+            (NSApp.delegate as? AppDelegate)?.playArchived(pf)
+        case "retranscribe":
+            let rf = j["file"] as? String ?? ""
+            (NSApp.delegate as? AppDelegate)?.retranscribeArchived(rf)
         default: break
         }
         if dirty {
@@ -830,6 +840,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func translateToggle() { hotkey(1) }
     @objc func askToggle() { hotkey(2) }
     @objc func transcribeOnly() { if !busy { transcribe(insert: false, mode: 0) } }
+    /// 回放归档录音（仅接受 ~/.sayless/recordings/ 下的文件，防路径逃逸）
+    func playArchived(_ file: String) {
+        let recDir = NSHomeDirectory() + "/.sayless/recordings/"
+        guard file.hasPrefix(recDir), FileManager.default.fileExists(atPath: file) else { return }
+        DispatchQueue.global().async { [weak self] in self?.runTool("/usr/bin/afplay", [file]) }
+        logLine("playAudio \(file)")
+    }
+    /// 对归档录音重转写（↻）：结果照常润色并粘贴
+    func retranscribeArchived(_ file: String) {
+        let recDir = NSHomeDirectory() + "/.sayless/recordings/"
+        guard file.hasPrefix(recDir), FileManager.default.fileExists(atPath: file), !busy else { return }
+        logLine("retranscribe \(file)")
+        transcribe(insert: true, force: true, wav: file)
+    }
     @objc func toggleLoginItem() {
         do { try SMAppService.mainApp.register() } catch {
             logLine("login item: \(error.localizedDescription)")
@@ -882,10 +906,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func transcribe(insert: Bool, mode: Int? = nil, force: Bool = false) {
+    func transcribe(insert: Bool, mode: Int? = nil, force: Bool = false, wav: String? = nil) {
         let m = mode ?? pendingMode
         pendingMode = 0
-        var args = [saylessPath, "transcribe", wavPath, "--no-insert"]
+        var args = [saylessPath, "transcribe", wav ?? wavPath, "--no-insert"]
         if m == 1 { args += ["--translate"] }
         if m == 2 { args += ["--ask"] }
         if !targetApp.isEmpty { args += ["--app", targetApp] }

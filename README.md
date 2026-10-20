@@ -32,7 +32,7 @@
 - **个性化词语库**：专有名词保护、确定性替换、风格规则、按前台应用自动叠加分应用词层
 - **自我学习**：`sayless learn` 对比原文/改稿自动生成词条，`--mine` 从历史挖掘高频修正
 - **完全可定制**：`~/.sayless/plugins/` 放一个 `.mjs` 即可接管管线任意环节（见 [PLUGINS.md](PLUGINS.md)）
-- **菜单栏面板（hub）**：洞察统计 + 贡献热力图 / 可搜索历史 / 可视化词典 / 完整设置页，Typeless 1:1 布局
+- **菜单栏面板（hub）**：洞察统计 + 贡献热力图 / 可搜索历史（每条可 **▶ 回放归档录音、↻ 一键重转写**）/ 可视化词典 / 完整设置页，Typeless 1:1 布局
 
 ```mermaid
 flowchart LR
@@ -242,7 +242,7 @@ flowchart LR
 }
 ```
 
-文件布局：`~/.sayless/` 下 `config.json`（0600，含 key，不入库）、`dictionary.json`、`history.jsonl`、`feedback.jsonl`、`last-utterance.wav`（.gitignore 排除）、`plugins/`、`ggml-base.bin`。
+文件布局：`~/.sayless/` 下 `config.json`（0600，含 key，不入库）、`dictionary.json`、`history.jsonl`、`feedback.jsonl`、`recordings/`（听写音频归档，自动保留最近 200 条，hub 历史页可回放/重转写）、`last-utterance.wav`（.gitignore 排除）、`plugins/`、`ggml-base.bin`。
 
 ## 故障排查
 
