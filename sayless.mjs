@@ -24,6 +24,9 @@ import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
 
+const [nmaj] = process.versions.node.split('.').map(Number);
+if (nmaj < 18) { console.error(`✗ sayless 需要 Node 18+（当前 ${process.versions.node}）：brew install node 或升级`); process.exit(1); }
+
 const DIR = path.join(os.homedir(), '.sayless');
 const CFG = path.join(DIR, 'config.json');
 const DICT = path.join(DIR, 'dictionary.json');
