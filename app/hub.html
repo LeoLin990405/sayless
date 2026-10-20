@@ -175,6 +175,12 @@ input[type=checkbox]{width:17px;height:17px;accent-color:#2563eb}
         </select>
       </div>
 
+      <h2 class="sec">供应商 API Key（写入后不回显）</h2>
+      <div class="frow"><label>供应商</label><select id="s-key-provider"></select></div>
+      <div class="frow"><label>API Key</label><input type="password" id="s-key-value" placeholder="粘贴 key；留空 = 不修改" autocomplete="off"></div>
+      <div class="frow"><label></label><button class="btn" onclick="saveKey()">写入 Key</button><span id="keymsg" style="font-size:13px;color:#4ade80;margin-left:12px"></span></div>
+      <div class="hint">key 只写入本地 ~/.sayless/config.json（0600 权限），页面不回显、不注入。各家套餐专属域名见 README「多模型」表。</div>
+
       <h2 class="sec">快捷键（只读）</h2>
       <div class="frow"><label>当前键位</label><div id="s-hotkeys" style="font-size:13px"></div></div>
       <div class="hint">改键：编辑 ~/.sayless/config.json 的 "hotkeys"（slot: dictate/translate/ask，key 为 macOS 键码，modifier: option/command/control/shift/none），保存后重启 SaylessBar 生效。</div>
@@ -183,7 +189,7 @@ input[type=checkbox]{width:17px;height:17px;accent-color:#2563eb}
         <button class="btn" onclick="saveCfg()">保存设置</button>
         <span id="cfgmsg"></span>
       </div>
-      <p style="font-size:12px;color:#888;margin-top:14px">保存写入 ~/.sayless/config.json（key 等敏感字段不在此页显示、也不会被覆盖）。插件扩展见仓库 PLUGINS.md：~/.sayless/plugins/ 放 .mjs 即可定制管线。</p>
+      <p style="font-size:12px;color:#888;margin-top:14px">保存写入 ~/.sayless/config.json（0600）。API Key 支持在上方"供应商 API Key"写入，写入后不回显；已有 key 不会被读取或覆盖。插件扩展见仓库 PLUGINS.md：~/.sayless/plugins/ 放 .mjs 即可定制管线。</p>
     </div>
   </div>
 </div>
@@ -233,6 +239,8 @@ function buildSettings(){
   document.getElementById('s-workflow').innerHTML = wfs.map(function(w){
     return '<option value="' + esc(w) + '">' + esc(w) + '</option>';
   }).join('');
+  // 供应商 Key 下拉（与润色供应商同一份列表）
+  document.getElementById('s-key-provider').innerHTML = sel.innerHTML;
   // 现值回填
   var asr = (CFG && CFG.asr) || {};
   sv('s-asr-adapter', asr.adapter || 'whisper');
@@ -286,6 +294,14 @@ function saveCfg(){
   dictPost({ action: 'saveCfg', config: stripEmpty(c) });
   var el = document.getElementById('cfgmsg'); el.textContent = '已保存 ✓（重新听写即生效）';
   setTimeout(function(){ el.textContent = ''; }, 3000);
+}
+function saveKey(){
+  var k = gv('s-key-value');
+  if (!k) { var el0 = document.getElementById('keymsg'); el0.textContent = '留空即不修改'; setTimeout(function(){ el0.textContent=''; }, 2000); return; }
+  dictPost({ action: 'setKey', provider: gv('s-key-provider'), key: k });
+  document.getElementById('s-key-value').value = '';
+  var el = document.getElementById('keymsg'); el.textContent = '已写入 ✓（立即生效）';
+  setTimeout(function(){ el.textContent=''; }, 3000);
 }
 function go(i, el){
   document.querySelectorAll('.tab').forEach((t,idx)=>t.classList.toggle('on', idx===i));

@@ -528,6 +528,25 @@ extension HubWindow: WKScriptMessageHandler {
                     logLine("cfg saved from hub")
                 }
             }
+        case "setKey":
+            // 写入供应商 apiKey：只写不读（页面永不回显 key），保留 0600
+            let prov = j["provider"] as? String ?? "", key = j["key"] as? String ?? ""
+            if !prov.isEmpty && !key.isEmpty {
+                let cfgFile = NSHomeDirectory() + "/.sayless/config.json"
+                if let raw = try? String(contentsOfFile: cfgFile, encoding: .utf8),
+                   var cfg = (try? JSONSerialization.jsonObject(with: raw.data(using: .utf8)!)) as? [String: Any] {
+                    var providers = (cfg["providers"] as? [String: Any]) ?? [:]
+                    var entry = (providers[prov] as? [String: Any]) ?? [:]
+                    entry["apiKey"] = key
+                    providers[prov] = entry
+                    cfg["providers"] = providers
+                    if let out = try? JSONSerialization.data(withJSONObject: cfg, options: [.prettyPrinted]) {
+                        try? out.write(to: URL(fileURLWithPath: cfgFile))
+                        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cfgFile)
+                    }
+                    logLine("apiKey written for \(prov)")
+                }
+            }
         default: break
         }
         if dirty {
