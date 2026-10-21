@@ -2,7 +2,7 @@
 
 > ⚠️ **声明**：本项目是对 Typeless 应用进行**逆向工程的学习项目**，交互形态按 1:1 复刻仅作学习研究之用，**切勿用于任何商业用途**（详见 [LICENSE](LICENSE)）。与 Typeless 原开发者无任何隶属或授权关系。
 
-**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个 Typeless 风格的菜单栏 App。当前版本 **v4.7.0**（见 [CHANGELOG](CHANGELOG.md)）。
+**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个 Typeless 风格的菜单栏 App。当前版本 **v4.8.0**（见 [CHANGELOG](CHANGELOG.md)）。
 
 干净的自研实现（不含任何第三方听写应用代码），模型走**你自己的套餐**，词语库和听写历史全部本地。
 
@@ -129,7 +129,7 @@ SAYLESS_SIGN=adhoc BUILD_ONLY=1 ./build.sh   # 跳过钥匙串里的持久证书
 | `sayless ask "<问题>"` | Bing CN + DuckDuckGo 检索 → 带 [n] 引用的回答；`--say` 先录音，`--no-search` 跳过联网 |
 | `sayless transcribe <wav>` | 转写→润色→粘贴，App 外壳复用此命令；`--force` 绕过短语音守卫 |
 | `sayless insert "<text>"` | 手动粘贴任意文本进焦点应用（默认 1.6s 后恢复剪贴板） |
-| `sayless dict add\|del\|add-hot\|del-hot\|import\|stats\|export\|validate` | 词语库管理；`import` 支持每行 `a=>b` 或纯热词；`app-add-hot` / `app-add-replace` 管理分应用词层 |
+| `sayless dict add\|del\|add-hot\|del-hot\|import\|stats\|export\|validate` | 词语库管理；`import` 支持每行 `a=>b`、纯热词，或 `dict export` 产出的 JSON（自动合并）；`app-add-hot` / `app-add-replace` 管理分应用词层 |
 | `sayless learn "<原文>" "<改稿>"` | LCS 智能 diff 自动生成替换规则；`--last` 对比上一条；`--mine [--apply]` 挖掘并回写高频修正；`--dry-run` 不落盘 |
 | `sayless history [-n 20] [--json] [--search q] [--delete n\|ts] [--clear --force] [--export file]` | 历史查看、搜索、删除、清空、导出 |
 | `sayless stats [--json]` | 口述字数/条数/活跃天/连续天/模式与 app 分布/录音归档大小 |
@@ -267,7 +267,7 @@ flowchart LR
 ## 开发与测试
 
 ```sh
-npm test                     # 69 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
+npm test                     # 70 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
 npm run check                # node --check + 完整测试
 BUILD_ONLY=1 ./app/build.sh  # 只编译打包 App（不装 /Applications、不启动）
 node tools/gen-hub-demo.mjs /tmp/hub-demo  # Chrome headless 渲染 hub 四页截图 + DOM js-error 检查

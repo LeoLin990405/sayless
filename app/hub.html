@@ -324,7 +324,10 @@ kbd{display:inline-block;background:#3a3838;border:1px solid #4b4747;border-bott
   <div class="tab" id="t1">
     <div class="page-head">
       <div><h1 class="small">历史记录</h1><div class="sub">听写、翻译和问答结果都只保存在本机。</div></div>
-      <button class="btn ghost mini" data-act="clear-history">清空历史</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost mini" data-act="export-history">导出历史</button>
+        <button class="btn ghost mini" data-act="clear-history">清空历史</button>
+      </div>
     </div>
     <div class="toolbar">
       <input class="search" id="hist-search" placeholder="搜索原文、结果、应用或模式…" autocomplete="off">
@@ -337,7 +340,11 @@ kbd{display:inline-block;background:#3a3838;border:1px solid #4b4747;border-bott
   <div class="tab" id="t2">
     <div class="page-head">
       <div><h1 class="small">词典</h1><div class="sub">确定性替换在 LLM 前后各跑一遍，离线也生效；热词会注入润色 prompt。</div></div>
-      <div class="dict-tools"><input class="search" id="dict-filter" placeholder="筛选替换…" style="min-width:190px"></div>
+      <div class="dict-tools">
+        <input class="search" id="dict-filter" placeholder="筛选替换…" style="min-width:190px">
+        <button class="btn ghost mini" data-act="export-dict">导出词库</button>
+        <button class="btn ghost mini" data-act="import-dict">导入词库</button>
+      </div>
     </div>
 
     <h2 class="sec">词频 <span class="note">按历史结果命中次数</span></h2>
@@ -1265,6 +1272,9 @@ document.addEventListener('click', function (e) {
   if (act === 'save-settings') return saveSettings();
   if (act === 'save-key') return saveKey();
   if (act === 'run-doctor') return runDoctor();
+  if (act === 'export-dict') { post({ action: 'exportDict' }); return; }
+  if (act === 'import-dict') { post({ action: 'importDict' }); return; }
+  if (act === 'export-history') { post({ action: 'exportHistory' }); return; }
   if (act === 'add-cross') {
     var models = collectCross(); models.push({ provider: PROVIDERS[0] || '', model: '' }); renderCross(models); return;
   }

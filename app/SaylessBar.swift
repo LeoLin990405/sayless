@@ -1,4 +1,4 @@
-// SaylessBar v4.7 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v4.8 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -7,6 +7,7 @@ import WebKit
 import ApplicationServices
 import ServiceManagement
 import UserNotifications
+import UniformTypeIdentifiers
 
 
 
@@ -327,7 +328,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.7.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.8.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -852,6 +853,146 @@ final class HubWindow: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.refresh() }
     }
 
+    private func dateStamp() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
+    }
+
+    private func askSaveURL(title: String, defaultName: String) -> URL? {
+        let panel = NSSavePanel()
+        panel.title = title
+        panel.nameFieldStringValue = defaultName
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        NSApp.activate(ignoringOtherApps: true)
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    private func askOpenURL(title: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        NSApp.activate(ignoringOtherApps: true)
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    private func exportDictionary() -> (Bool, String) {
+        guard FileManager.default.fileExists(atPath: saylessDictFile) else { return (false, "词库文件不存在") }
+        guard let url = askSaveURL(title: "导出词库", defaultName: "sayless-dictionary-\(dateStamp()).json") else {
+            return (false, "已取消导出")
+        }
+        guard let data = FileManager.default.contents(atPath: saylessDictFile) else { return (false, "读取词库失败") }
+        guard writeData(data, to: url.path) else { return (false, "写入导出文件失败") }
+        return (true, "已导出词库 → \(url.lastPathComponent)")
+    }
+
+    private func exportHistory() -> (Bool, String) {
+        guard let url = askSaveURL(title: "导出听写历史", defaultName: "sayless-history-\(dateStamp()).json") else {
+            return (false, "已取消导出")
+        }
+        let entries = readHistoryObjects()
+        guard JSONSerialization.isValidJSONObject(entries),
+              let data = try? JSONSerialization.data(withJSONObject: entries, options: [.prettyPrinted, .sortedKeys]) else {
+            return (false, "序列化历史失败")
+        }
+        guard writeData(data, to: url.path) else { return (false, "写入导出文件失败") }
+        return (true, "已导出 \(entries.count) 条历史 → \(url.lastPathComponent)")
+    }
+
+    private func validateDictionary(_ src: [String: Any]) -> String? {
+        let known = ["replacements", "hotwords", "styleRules", "apps"]
+        guard known.contains(where: { src[$0] != nil }) else { return "不是 sayless 词库 JSON（缺少 replacements/hotwords/styleRules/apps）" }
+        if let raw = src["replacements"] {
+            guard let arr = raw as? [[String: Any]] else { return "replacements 必须是对象数组" }
+            for (i, r) in arr.enumerated() {
+                guard let to = r["to"] as? String else { return "replacements[\(i)] 缺少字符串 to" }
+                _ = to
+                if let from = r["from"] as? String, !from.isEmpty { continue }
+                if let pattern = r["pattern"] as? String, !pattern.isEmpty {
+                    if (try? NSRegularExpression(pattern: pattern)) == nil { return "replacements[\(i)] 正则无效：\(pattern)" }
+                    continue
+                }
+                return "replacements[\(i)] 需要非空 from 或 pattern"
+            }
+        }
+        if let raw = src["hotwords"], !(raw is [String]) { return "hotwords 必须是字符串数组" }
+        if let raw = src["styleRules"], !(raw is [String]) { return "styleRules 必须是字符串数组" }
+        if let raw = src["apps"] {
+            guard let apps = raw as? [String: Any] else { return "apps 必须是对象" }
+            for (app, value) in apps {
+                guard let layer = value as? [String: Any] else { return "apps.\(app) 必须是对象" }
+                if let h = layer["hotwords"], !(h is [String]) { return "apps.\(app).hotwords 必须是字符串数组" }
+                if let rules = layer["styleRules"], !(rules is [String]) { return "apps.\(app).styleRules 必须是字符串数组" }
+                if let reps = layer["replacements"], !(reps is [[String: Any]]) { return "apps.\(app).replacements 必须是对象数组" }
+            }
+        }
+        return nil
+    }
+
+    private func mergeDictionary(_ dst: inout [String: Any], _ src: [String: Any]) -> (rep: Int, hot: Int, rules: Int, apps: Int) {
+        var rep = 0, hot = 0, rules = 0, appsChanged = 0
+        var existingReps = (dst["replacements"] as? [[String: Any]]) ?? []
+        for r in (src["replacements"] as? [[String: Any]]) ?? [] {
+            let key = (r["from"] as? String) ?? (r["pattern"] as? String) ?? ""
+            existingReps.removeAll { (($0["from"] as? String) ?? ($0["pattern"] as? String) ?? "") == key }
+            existingReps.append(r)
+            rep += 1
+        }
+        dst["replacements"] = existingReps
+        var existingHot = (dst["hotwords"] as? [String]) ?? []
+        for w in (src["hotwords"] as? [String]) ?? [] where !existingHot.contains(w) {
+            existingHot.append(w); hot += 1
+        }
+        dst["hotwords"] = existingHot
+        var existingRules = (dst["styleRules"] as? [String]) ?? []
+        for rule in (src["styleRules"] as? [String]) ?? [] where !existingRules.contains(rule) {
+            existingRules.append(rule); rules += 1
+        }
+        dst["styleRules"] = existingRules
+        var dstApps = (dst["apps"] as? [String: Any]) ?? [:]
+        for (app, value) in (src["apps"] as? [String: Any]) ?? [:] {
+            guard let srcLayer = value as? [String: Any] else { continue }
+            var layer = (dstApps[app] as? [String: Any]) ?? [:]
+            var layerReps = (layer["replacements"] as? [[String: Any]]) ?? []
+            for r in (srcLayer["replacements"] as? [[String: Any]]) ?? [] {
+                let key = (r["from"] as? String) ?? (r["pattern"] as? String) ?? ""
+                layerReps.removeAll { (($0["from"] as? String) ?? ($0["pattern"] as? String) ?? "") == key }
+                layerReps.append(r)
+            }
+            layer["replacements"] = layerReps
+            var layerHot = (layer["hotwords"] as? [String]) ?? []
+            for w in (srcLayer["hotwords"] as? [String]) ?? [] where !layerHot.contains(w) { layerHot.append(w) }
+            layer["hotwords"] = layerHot
+            var layerRules = (layer["styleRules"] as? [String]) ?? []
+            for rule in (srcLayer["styleRules"] as? [String]) ?? [] where !layerRules.contains(rule) { layerRules.append(rule) }
+            layer["styleRules"] = layerRules
+            dstApps[app] = layer
+            appsChanged += 1
+        }
+        dst["apps"] = dstApps
+        return (rep, hot, rules, appsChanged)
+    }
+
+    private func importDictionary() -> (Bool, String) {
+        guard let url = askOpenURL(title: "导入词库（合并）") else { return (false, "已取消导入") }
+        guard let data = try? Data(contentsOf: url),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return (false, "导入文件不是合法 JSON 对象")
+        }
+        if let err = validateDictionary(obj) { return (false, err) }
+        guard var dst = writableJSON(saylessDictFile) else {
+            return (false, "dictionary.json 已损坏，拒绝覆盖；请先修复或备份")
+        }
+        let counts = mergeDictionary(&dst, obj)
+        guard writeJSONObject(dst, to: saylessDictFile) else { return (false, "写入词库失败（检查权限）") }
+        return (true, "已合并：\(counts.rep) 替换 / \(counts.hot) 热词 / \(counts.rules) 规则 / \(counts.apps) 应用层")
+    }
+
     /// 首次使用：在 App 内运行内置 CLI 的 init，生成 config.json / dictionary.json
     private func runInitConfig() {
         guard !initializingConfig else { return }
@@ -1174,6 +1315,19 @@ extension HubWindow: WKScriptMessageHandler {
             } else {
                 reply(false, "历史写入失败（检查 history.jsonl 权限）")
             }
+
+        case "exportDict":
+            let r = exportDictionary()
+            reply(r.0, r.1)
+
+        case "importDict":
+            let r = importDictionary()
+            reply(r.0, r.1)
+            if r.0 { scheduleRefresh() }
+
+        case "exportHistory":
+            let r = exportHistory()
+            reply(r.0, r.1)
 
         case "runDoctor":
             runDoctor()

@@ -175,7 +175,7 @@ test('doctor --offline --json 输出结构化体检', async (t) => {
   const r = await runCli(['doctor', '--offline', '--json'], { dir });
   assert.equal(r.code, 0, r.stderr);
   const report = JSON.parse(r.stdout);
-  assert.equal(report.version, '4.7.0');
+  assert.equal(report.version, '4.8.0');
   assert.equal(report.config.mode, '600');
   assert.equal(report.asr.adapter, 'whisper');
   assert.ok(Array.isArray(report.providers));
@@ -286,4 +286,30 @@ test('history -n 空值使用默认值而不是 0', async (t) => {
   const r = await runCli(['history', '-n', '', '--json'], { dir });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).length, 2);
+});
+
+test('dict import 支持 JSON 词库合并，并拒绝坏 JSON', async (t) => {
+  const dir = await setup(t);
+  const file = path.join(dir, 'import-dict.json');
+  fs.writeFileSync(file, JSON.stringify({
+    replacements: [{ from: '甲', to: 'A' }],
+    hotwords: ['XCode'],
+    styleRules: ['JSON 规则'],
+    apps: { Mail: { hotwords: ['MailHot'], replacements: [{ from: '乙', to: 'B' }] } }
+  }));
+  let r = await runCli(['dict', 'import', file], { dir });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /JSON 合并/);
+  const d = readJson(dictPath(dir));
+  assert.ok(d.replacements.some(x => x.from === '甲' && x.to === 'A'));
+  assert.ok(d.hotwords.includes('XCode'));
+  assert.ok(d.styleRules.includes('JSON 规则'));
+  assert.ok(d.apps.Mail.hotwords.includes('MailHot'));
+  assert.ok(d.apps.Mail.replacements.some(x => x.from === '乙' && x.to === 'B'));
+
+  const bad = path.join(dir, 'bad-dict.json');
+  fs.writeFileSync(bad, '{bad json');
+  r = await runCli(['dict', 'import', bad], { dir });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /JSON 解析失败/);
 });

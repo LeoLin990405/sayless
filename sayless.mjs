@@ -30,7 +30,7 @@ import { pathToFileURL } from 'node:url';
 const [nmaj] = process.versions.node.split('.').map(Number);
 if (nmaj < 18) { console.error(`✗ sayless 需要 Node 18+（当前 ${process.versions.node}）：brew install node 或升级`); process.exit(1); }
 
-const VERSION = '4.7.0';
+const VERSION = '4.8.0';
 const DIR = process.env.SAYLESS_DIR ? path.resolve(process.env.SAYLESS_DIR) : path.join(os.homedir(), '.sayless');
 const CFG = path.join(DIR, 'config.json');
 const DICT = path.join(DIR, 'dictionary.json');
@@ -1134,6 +1134,65 @@ function dictDocForEdit() {
   return d;
 }
 function saveDict(d) { writeFileAtomic(DICT, JSON.stringify(d, null, 2), 0o600); }
+function mergeDictInto(dst, src) {
+  if (!isObj(src)) fail('词库 JSON 顶层必须是对象', 2);
+  const known = ['replacements', 'hotwords', 'styleRules', 'apps'];
+  if (!known.some(k => src[k] !== undefined)) fail('不是 sayless 词库 JSON（缺少 replacements/hotwords/styleRules/apps）', 2);
+  const validateRule = (r, where) => {
+    if (!isObj(r)) fail(`${where} 不是对象`, 2);
+    if (typeof r.to !== 'string') fail(`${where} 缺少字符串 to`, 2);
+    if (typeof r.from === 'string' && r.from) return;
+    if (typeof r.pattern === 'string' && r.pattern) {
+      try { new RegExp(r.pattern); } catch (e) { fail(`${where} 正则无效：${e.message}`, 2); }
+      return;
+    }
+    fail(`${where} 需要非空 from 或 pattern`, 2);
+  };
+  const srcReps = src.replacements ?? [];
+  const srcHot = src.hotwords ?? [];
+  const srcRules = src.styleRules ?? [];
+  const srcApps = src.apps ?? {};
+  if (!Array.isArray(srcReps)) fail('replacements 必须是数组', 2);
+  if (!Array.isArray(srcHot) || srcHot.some(w => typeof w !== 'string')) fail('hotwords 必须是字符串数组', 2);
+  if (!Array.isArray(srcRules) || srcRules.some(r => typeof r !== 'string')) fail('styleRules 必须是字符串数组', 2);
+  if (!isObj(srcApps)) fail('apps 必须是对象', 2);
+  srcReps.forEach((r, i) => validateRule(r, `replacements[${i}]`));
+  for (const [app, layer] of Object.entries(srcApps)) {
+    if (!isObj(layer)) fail(`apps.${app} 必须是对象`, 2);
+    if (layer.replacements !== undefined && !Array.isArray(layer.replacements)) fail(`apps.${app}.replacements 必须是数组`, 2);
+    (layer.replacements || []).forEach((r, i) => validateRule(r, `apps.${app}.replacements[${i}]`));
+    if (layer.hotwords !== undefined && (!Array.isArray(layer.hotwords) || layer.hotwords.some(w => typeof w !== 'string'))) fail(`apps.${app}.hotwords 必须是字符串数组`, 2);
+    if (layer.styleRules !== undefined && (!Array.isArray(layer.styleRules) || layer.styleRules.some(r => typeof r !== 'string'))) fail(`apps.${app}.styleRules 必须是字符串数组`, 2);
+  }
+  const keyOf = r => r.from || r.pattern;
+  const counts = { rep: srcReps.length, hot: 0, rules: 0, apps: 0 };
+  for (const r of srcReps) {
+    dst.replacements = dst.replacements.filter(x => keyOf(x) !== keyOf(r));
+    dst.replacements.push(r);
+  }
+  for (const w of srcHot) {
+    if (!dst.hotwords.includes(w)) { dst.hotwords.push(w); counts.hot++; }
+  }
+  for (const rule of srcRules) {
+    if (!dst.styleRules.includes(rule)) { dst.styleRules.push(rule); counts.rules++; }
+  }
+  dst.apps = isObj(dst.apps) ? dst.apps : {};
+  for (const [app, layer] of Object.entries(srcApps)) {
+    const target = ensureAppLayer(dst, app);
+    for (const r of (layer.replacements || [])) {
+      target.replacements = target.replacements.filter(x => keyOf(x) !== keyOf(r));
+      target.replacements.push(r);
+    }
+    for (const w of (layer.hotwords || [])) {
+      if (!target.hotwords.includes(w)) target.hotwords.push(w);
+    }
+    for (const rule of (layer.styleRules || [])) {
+      if (!target.styleRules.includes(rule)) target.styleRules.push(rule);
+    }
+    counts.apps++;
+  }
+  return counts;
+}
 function ensureAppLayer(d, app) {
   d.apps = isObj(d.apps) ? d.apps : {};
   if (!isObj(d.apps[app])) d.apps[app] = {};
@@ -1432,20 +1491,28 @@ try {
       if (!src) fail('用法: sayless dict import <file>', 2);
       const text = fs.readFileSync(requireFile(src), 'utf8');
       const d = dictDocForEdit();
-      let hot = 0, rep = 0;
-      for (const line of text.split('\n').map(l => l.trim()).filter(Boolean)) {
-        const m = line.match(/^(.+?)(?:\s*(?:=>|→|\t)\s*(.+))$/);
-        if (m && m[2]) {
-          if (!d.replacements.some(r => r.from === m[1].trim())) rep++;
-          d.replacements = d.replacements.filter(r => r.from !== m[1].trim());
-          d.replacements.push({ from: m[1].trim(), to: m[2].trim() });
-        } else {
-          if (!d.hotwords.includes(line)) hot++;
-          d.hotwords = [...new Set([...d.hotwords, line])];
+      if (text.trim().startsWith('{')) {
+        let parsed;
+        try { parsed = JSON.parse(text); } catch (e) { fail(`词库 JSON 解析失败：${e.message}`, 2); }
+        const counts = mergeDictInto(d, parsed);
+        saveDict(d);
+        console.log(`导入完成（JSON 合并）：${counts.rep} 替换 / ${counts.hot} 热词 / ${counts.rules} 规则 / ${counts.apps} 应用层`);
+      } else {
+        let hot = 0, rep = 0;
+        for (const line of text.split('\n').map(l => l.trim()).filter(Boolean)) {
+          const m = line.match(/^(.+?)(?:\s*(?:=>|→|\t)\s*(.+))$/);
+          if (m && m[2]) {
+            if (!d.replacements.some(r => r.from === m[1].trim())) rep++;
+            d.replacements = d.replacements.filter(r => r.from !== m[1].trim());
+            d.replacements.push({ from: m[1].trim(), to: m[2].trim() });
+          } else {
+            if (!d.hotwords.includes(line)) hot++;
+            d.hotwords = [...new Set([...d.hotwords, line])];
+          }
         }
+        saveDict(d);
+        console.log(`导入完成：${rep} 条新替换，${hot} 个新热词`);
       }
-      saveDict(d);
-      console.log(`导入完成：${rep} 条新替换，${hot} 个新热词`);
     } else if (sub === 'stats') {
       const d = dictDocForEdit();
       const entries = readHistory();

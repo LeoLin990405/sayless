@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '4.7.0',
+    version: '4.8.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '4.7.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '4.8.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -186,6 +186,9 @@ test('hub 写操作使用 native 结果回调，不先报成功', () => {
   assert.match(TPL, /window\.hubActionResult/);
   assert.match(TPL, /postWithCallback/);
   assert.match(TPL, /id="home-status"/);
+  assert.match(TPL, /data-act="export-dict"/);
+  assert.match(TPL, /data-act="import-dict"/);
+  assert.match(TPL, /data-act="export-history"/);
   assert.doesNotMatch(TPL, /toast\('已添加替换'\)/);
   assert.doesNotMatch(TPL, /toast\('已删除记录'\)/);
 });
