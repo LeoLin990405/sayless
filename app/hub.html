@@ -744,6 +744,54 @@ kbd{
   *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
 }
 
+
+/* command palette + keyboard affordances */
+.top-actions{display:flex;align-items:center;gap:14px}
+.cmd-trigger{
+  display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.03);
+  border:1px solid var(--line);border-radius:9px;padding:6px 9px;color:var(--muted);
+  font-size:9.5px;transition:background .16s,color .16s,border-color .16s;
+}
+.cmd-trigger kbd{padding:2px 5px;font-size:8.5px;border-radius:5px}
+.cmd-trigger:hover{background:rgba(255,255,255,.06);color:var(--sub);border-color:var(--line-strong)}
+.cmd{position:fixed;inset:0;z-index:75;display:flex;align-items:flex-start;justify-content:center;padding:13vh 20px 24px;background:rgba(3,4,3,.58);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.cmd[hidden]{display:none}
+.cmd-card{
+  width:min(560px,100%);overflow:hidden;border-radius:20px;
+  background:linear-gradient(180deg,rgba(25,31,24,.985),rgba(13,17,13,.985));
+  border:1px solid rgba(216,255,124,.2);
+  box-shadow:0 40px 110px rgba(0,0,0,.66),inset 0 1px 0 rgba(255,255,255,.05);
+  animation:cmdIn .2s cubic-bezier(.22,.7,.25,1);
+}
+@keyframes cmdIn{from{opacity:0;transform:translateY(-8px) scale(.99)}to{opacity:1;transform:none}}
+.cmd-head{display:flex;align-items:center;gap:11px;padding:15px 16px;border-bottom:1px solid var(--line)}
+.cmd-mark{font-family:var(--mono);font-size:9px;letter-spacing:.8px;color:var(--accent);background:rgba(216,255,124,.08);border:1px solid rgba(216,255,124,.17);border-radius:6px;padding:4px 6px;flex-shrink:0}
+#cmd-input{flex:1;min-width:0;background:transparent!important;border:0!important;box-shadow:none!important;padding:4px 0!important;font-size:14px;color:var(--txt);outline:none}
+#cmd-input::placeholder{color:var(--muted)}
+.cmd-head kbd{flex-shrink:0;font-size:8px;letter-spacing:.5px;color:var(--muted);background:transparent;border:0;box-shadow:none;padding:0}
+.cmd-list{padding:7px;max-height:min(340px,45vh);overflow:auto}
+.cmd-item{
+  width:100%;display:flex;align-items:center;gap:11px;background:transparent;border:1px solid transparent;
+  border-radius:10px;padding:9px 10px;color:var(--sub);text-align:left;font-size:12px;
+  transition:background .14s,color .14s,border-color .14s;
+}
+.cmd-item:hover,.cmd-item.on{background:rgba(216,255,124,.075);border-color:rgba(216,255,124,.1);color:var(--txt)}
+.cmd-item .ci{
+  width:22px;height:22px;border-radius:6px;background:rgba(255,255,255,.045);display:grid;place-items:center;
+  font-family:var(--mono);font-size:10px;color:var(--muted);flex-shrink:0;
+}
+.cmd-item.on .ci{background:var(--accent);color:#151a0c}
+.cmd-item .cl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmd-item .ch{font-family:var(--mono);font-size:8.5px;letter-spacing:.3px;color:var(--muted);flex-shrink:0}
+.cmd-empty{padding:34px 16px;text-align:center;color:var(--muted);font-size:11px}
+.cmd-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 16px;border-top:1px solid var(--line);font-family:var(--mono);font-size:8px;letter-spacing:.7px;color:var(--muted)}
+mark{background:rgba(216,255,124,.2);color:var(--accent);border-radius:3px;padding:0 1px}
+@media(max-width:620px){
+  .cmd-trigger span{display:none}
+  .cmd-trigger{padding:6px}
+  .cmd{padding:10vh 12px 20px}
+}
+
 </style>
 </head>
 <body>
@@ -765,7 +813,10 @@ kbd{
 <div class="main">
   <div class="topline">
     <div class="eyebrow"><span class="eyebrow-dot"></span>SAYLESS / VOICE STUDIO</div>
-    <div class="topmeta"><span class="live"></span>本地模式<span class="sep">·</span><span id="top-date"></span></div>
+    <div class="top-actions">
+      <button class="cmd-trigger" data-act="open-cmd" title="命令面板（⌘K）"><kbd>⌘K</kbd><span>命令</span></button>
+      <div class="topmeta"><span class="live"></span>本地模式<span class="sep">·</span><span id="top-date"></span></div>
+    </div>
   </div>
   <div class="setup-banner" id="setup-banner" hidden>
     <div class="sb-body">
@@ -1045,6 +1096,17 @@ kbd{
   <div class="grad g"><div class="t">插件扩展</div><div class="d">~/.sayless/plugins/ 放 .mjs 即可定制管线；见 PLUGINS.md。</div></div>
 </aside>
 
+<div class="cmd" id="cmd" hidden>
+  <div class="cmd-card" role="dialog" aria-modal="true" aria-label="命令面板">
+    <div class="cmd-head">
+      <span class="cmd-mark">⌘K</span>
+      <input id="cmd-input" placeholder="搜索页面、操作或历史…" autocomplete="off" spellcheck="false">
+      <kbd>ESC</kbd>
+    </div>
+    <div class="cmd-list" id="cmd-list"></div>
+    <div class="cmd-foot"><span>↑↓ 选择 · ↵ 执行</span><span>SAYLESS STUDIO</span></div>
+  </div>
+</div>
 <div id="toast"></div>
 <div class="modal" id="confirm">
   <div class="modal-card">
@@ -1076,7 +1138,7 @@ var DICT = DATA.dict || {};
 var PROVIDERS = Array.isArray(DATA.providers) ? DATA.providers : [];
 var KEYSTATUS = DATA.providerKeys || {};
 var ENV = DATA.env || {};
-var APP = { tab: DATA.initialTab || 0, histQuery: '', dictQuery: '', capturing: null, reqSeq: 0, pending: {}, historyTotal: 0, searchEntries: null, searchTotal: 0, searchPending: false, searchRid: null, searchTimer: null };
+var APP = { tab: DATA.initialTab || 0, histQuery: '', dictQuery: '', capturing: null, reqSeq: 0, pending: {}, historyTotal: 0, searchEntries: null, searchTotal: 0, searchPending: false, searchRid: null, searchTimer: null, cmdOpen: false, cmdItems: [], cmdIndex: 0 };
 APP.historyTotal = (DATA.stats && DATA.stats.entries) || (DATA.history || []).length;
 var MOD_NAMES = { option: '⌥', command: '⌘', control: '⌃', shift: '⇧', none: '' };
 var MOD_LABELS = { option: 'Option', command: 'Command', control: 'Control', shift: 'Shift', none: '无' };
@@ -1108,6 +1170,19 @@ function esc(s) {
   });
 }
 function attr(s) { return esc(s); }
+function highlightText(text, query) {
+  text = String(text == null ? '' : text);
+  var q = String(query == null ? '' : query).trim();
+  if (!q) return esc(text);
+  var lower = text.toLowerCase(), ql = q.toLowerCase(), out = '', i = 0;
+  while (i < text.length) {
+    var j = lower.indexOf(ql, i);
+    if (j < 0) { out += esc(text.slice(i)); break; }
+    out += esc(text.slice(i, j)) + '<mark>' + esc(text.slice(j, j + q.length)) + '</mark>';
+    i = j + q.length;
+  }
+  return out;
+}
 function num(v, d) { var n = Number(v); return Number.isFinite(n) ? n : d; }
 function fmt(n) { return Number(n || 0).toLocaleString('zh-CN'); }
 function fmtBytes(n) {
@@ -1382,13 +1457,13 @@ function histRow(e) {
   }
   actions += '<button class="iconbtn danger" data-act="del-hist" data-ts="' + attr(e.ts) + '" title="删除">✕</button>';
   var detail = '<div class="hist-detail" hidden>' +
-    '<div><div class="hd-label">ASR 原文</div><pre class="hd-pre">' + esc(e.raw || '（无原文记录）') + '</pre></div>' +
+    '<div><div class="hd-label">ASR 原文</div><pre class="hd-pre">' + highlightText(e.raw || '（无原文记录）', APP.histQuery) + '</pre></div>' +
     '<div class="hd-meta">' + timingText(e.timings) + (e.app ? ' · 应用 ' + esc(e.app) : '') + (rec ? ' · 录音 ' + esc(rec) : '') + '</div>' +
     '</div>';
   return '<div class="hist-row" data-ts="' + attr(e.ts) + '">' +
     '<div class="hist-time">' + esc(timeLabel(e.ts)) + '</div>' +
     '<div><span class="mode ' + m.cls + '">' + esc(m.text) + '</span></div>' +
-    '<div class="hist-body"><div class="hist-text">' + esc(e.out || '') + '</div>' +
+    '<div class="hist-body"><div class="hist-text">' + highlightText(e.out || '', APP.histQuery) + '</div>' +
     (e.app ? '<div class="hist-app">应用 · ' + esc(e.app) + '</div>' : '') +
     '</div>' +
     '<div class="hist-actions">' + actions + '</div>' +
@@ -1845,6 +1920,67 @@ function onCaptureKey(e) {
   toast('已改为 ' + hotkeyText(next) + '，保存后重启 App 生效', 'warn');
 }
 
+
+/* ---------- 命令面板 ---------- */
+function commandItems(query) {
+  var q = String(query == null ? '' : query).trim();
+  var items = [
+    { ico:'⌂', label:'首页', hint:'⌘1', run:function () { go(0); } },
+    { ico:'◷', label:'历史记录', hint:'⌘2', run:function () { go(1); } },
+    { ico:'▤', label:'词典', hint:'⌘3', run:function () { go(2); } },
+    { ico:'⚙', label:'设置', hint:'⌘4', run:function () { go(3); } },
+    { ico:'●', label:'开始听写', hint:'⌥Space', run:function () { post({ action:'triggerDictate' }); } },
+    { ico:'↗', label:'打开数据目录', hint:'', run:function () { post({ action:'openDataDir' }); } },
+    { ico:'⇣', label:'导出历史', hint:'JSON', run:function () { post({ action:'exportHistory' }); } },
+    { ico:'⇣', label:'导出词库', hint:'JSON', run:function () { post({ action:'exportDict' }); } },
+    { ico:'⇡', label:'导入词库', hint:'JSON', run:function () { post({ action:'importDict' }); } },
+    { ico:'◎', label:'运行体检', hint:'doctor', run:function () { go(3); setTimeout(runDoctor, 120); } }
+  ];
+  if (q) {
+    var ql = q.toLowerCase();
+    items = items.filter(function (it) { return (it.label + ' ' + (it.hint || '')).toLowerCase().indexOf(ql) >= 0; });
+    items.push({ ico:'⌕', label:'在历史中搜索「' + q + '」', hint:'↵', run:function () {
+      var v = q; go(1);
+      var inp = $('#hist-search'); if (inp) inp.value = v;
+      onHistSearch(v);
+    }});
+  }
+  return items.slice(0, 9);
+}
+function renderCommandList() {
+  var items = APP.cmdItems = commandItems($('#cmd-input').value);
+  if (APP.cmdIndex >= items.length) APP.cmdIndex = 0;
+  $('#cmd-list').innerHTML = items.length ? items.map(function (it, i) {
+    return '<button class="cmd-item' + (i === APP.cmdIndex ? ' on' : '') + '" data-cmd-i="' + i + '">' +
+      '<span class="ci">' + esc(it.ico) + '</span><span class="cl">' + esc(it.label) + '</span>' +
+      '<span class="ch">' + esc(it.hint || '') + '</span></button>';
+  }).join('') : '<div class="cmd-empty">没有匹配的命令。试着输入「导出」「设置」或一段历史关键词。</div>';
+}
+function closeCommandPalette() {
+  var el = $('#cmd');
+  if (el) el.hidden = true;
+  APP.cmdOpen = false;
+}
+function openCommandPalette() {
+  var el = $('#cmd');
+  if (!el) return;
+  APP.cmdOpen = true;
+  APP.cmdIndex = 0;
+  el.hidden = false;
+  $('#cmd-input').value = '';
+  renderCommandList();
+  setTimeout(function () { $('#cmd-input').focus(); }, 0);
+}
+function runCommand(index) {
+  var it = (APP.cmdItems || [])[index];
+  if (!it) return;
+  closeCommandPalette();
+  setTimeout(function () { try { it.run(); } catch (e) { toast('命令执行失败', 'warn'); } }, 0);
+}
+window.openCommandPalette = openCommandPalette;
+window.closeCommandPalette = closeCommandPalette;
+window.runCommand = runCommand;
+
 /* ---------- 事件 ---------- */
 document.addEventListener('click', function (e) {
   var nav = e.target.closest('.nav a');
@@ -1852,6 +1988,7 @@ document.addEventListener('click', function (e) {
   var btn = e.target.closest('[data-act]');
   if (!btn) return;
   var act = btn.getAttribute('data-act');
+  if (act === 'open-cmd') { openCommandPalette(); return; }
   if (act === 'go-settings') return go(3);
   if (act === 'go-history') return go(1);
   if (act === 'new-dictate') { post({ action: 'triggerDictate' }); return; }
@@ -2007,6 +2144,46 @@ document.addEventListener('click', function (e) {
   }
 });
 $('#hist-search').addEventListener('input', function (e) { onHistSearch(e.target.value || ''); });
+$('#cmd-input').addEventListener('input', function () { APP.cmdIndex = 0; renderCommandList(); });
+$('#cmd-list').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-cmd-i]');
+  if (b) runCommand(Number(b.getAttribute('data-cmd-i')));
+});
+$('#cmd').addEventListener('click', function (e) {
+  if (e.target && e.target.id === 'cmd') closeCommandPalette();
+});
+document.addEventListener('keydown', function (e) {
+  if (APP.cmdOpen) {
+    if (e.key === 'Escape') { e.preventDefault(); closeCommandPalette(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      var n = (APP.cmdItems || []).length;
+      if (!n) return;
+      APP.cmdIndex = (APP.cmdIndex + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+      renderCommandList();
+      var active = $('#cmd-list .cmd-item.on');
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    if (e.key === 'Enter') { e.preventDefault(); runCommand(APP.cmdIndex); return; }
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    if (APP.cmdOpen) closeCommandPalette(); else openCommandPalette();
+    return;
+  }
+  if (e.metaKey && !e.ctrlKey && !e.altKey && !APP.capturing && /^[1-4]$/.test(e.key)) {
+    e.preventDefault();
+    go(Number(e.key) - 1);
+    return;
+  }
+  var tag = String((e.target && e.target.tagName) || '').toLowerCase();
+  var typing = tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable);
+  if (e.key === '/' && APP.tab === 1 && !APP.capturing && !typing) {
+    e.preventDefault();
+    $('#hist-search').focus();
+  }
+});
 $('#dict-filter').addEventListener('input', function (e) { APP.dictQuery = e.target.value || ''; filterDictRows(); });
 $('#s-asr-adapter').addEventListener('change', function () { updateAsrHint(); renderStatus(); });
 document.addEventListener('change', function (e) {
@@ -2048,6 +2225,7 @@ window.addEventListener('beforeunload', function () {
 
 /* ---------- 启动 ---------- */
 function go(tab) {
+  if (APP.cmdOpen) closeCommandPalette();
   if (APP.capturing) stopCapture();
   APP.tab = tab;
   $$('.tab').forEach(function (t, i) { t.classList.toggle('on', i === tab); });

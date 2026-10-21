@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '5.0.0',
+    version: '5.1.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '5.0.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '5.1.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -191,6 +191,9 @@ test('hub 写操作使用 native 结果回调，不先报成功', () => {
   assert.match(TPL, /data-act="export-history"/);
   assert.match(TPL, /id="hist-more"/);
   assert.match(TPL, /id="top-date"/);
+  assert.match(TPL, /id="cmd"/);
+  assert.match(TPL, /window\.openCommandPalette/);
+  assert.match(TPL, /highlightText/);
   assert.match(TPL, /class="hero-visual"/);
   assert.match(TPL, /class="mark"/);
   assert.match(TPL, /window\.appendHistory/);
@@ -215,13 +218,14 @@ test('hub 历史追加与全量搜索结果可渲染', { skip: !fs.existsSync(CH
       APP.searchRid = 'r-test';
       APP.searchPending = true;
       window.historySearchDone('r-test', 'NEEDLE', [
-        {ts:'2026-10-17T10:00:00.000Z',mode:'ask',out:'SEARCH-HIT',raw:'needle raw',app:'',rec:'',inserted:false}
+        {ts:'2026-10-17T10:00:00.000Z',mode:'ask',out:'SEARCH NEEDLE HIT',raw:'needle raw',app:'',rec:'',inserted:false}
       ], 42);
-      var searched = document.getElementById('hist-list').textContent.indexOf('SEARCH-HIT') >= 0;
+      var searched = document.getElementById('hist-list').textContent.indexOf('SEARCH NEEDLE HIT') >= 0;
+      var marked = document.querySelector('#hist-list mark') !== null;
       var count = document.getElementById('hist-count').textContent;
       var marker = document.createElement('div');
       marker.id = 'test-marker';
-      marker.textContent = JSON.stringify({ appended: appended, more: more, searched: searched, count: count });
+      marker.textContent = JSON.stringify({ appended: appended, more: more, searched: searched, marked: marked, count: count });
       document.body.appendChild(marker);
     </script>`;
     const htmlPath = path.join(dir, 'hub.html');
@@ -238,7 +242,46 @@ test('hub 历史追加与全量搜索结果可渲染', { skip: !fs.existsSync(CH
     assert.match(dom, /appended":true/);
     assert.match(dom, /剩余 1497 条/);
     assert.match(dom, /searched":true/);
+    assert.match(dom, /marked":true/);
+    assert.match(dom, /<mark>NEEDLE<\/mark>/);
     assert.match(dom, /1 \/ 42 条匹配/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hub 命令面板可打开并按关键词过滤', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-cmd-'));
+  try {
+    const data = demoData();
+    const safe = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const extra = `<script>
+      window.openCommandPalette();
+      var opened = !document.getElementById('cmd').hidden;
+      var input = document.getElementById('cmd-input');
+      input.value = '导出';
+      input.dispatchEvent(new Event('input'));
+      var labels = [].slice.call(document.querySelectorAll('.cmd-item .cl')).map(function (el) { return el.textContent; });
+      var marker = document.createElement('div');
+      marker.id = 'cmd-marker';
+      marker.textContent = JSON.stringify({ opened: opened, labels: labels });
+      document.body.appendChild(marker);
+    </script>`;
+    const htmlPath = path.join(dir, 'hub.html');
+    fs.writeFileSync(htmlPath, TPL.replace('__DATAJSON__', safe).replace('</body>', extra + '</body>'));
+    const r = spawnSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
+      '--dump-dom', `file://${htmlPath}`
+    ], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    const dom = r.stdout || '';
+    assert.doesNotMatch(dom, /id="js-error"/);
+    assert.match(dom, /id="cmd-marker"/);
+    assert.match(dom, /opened":true/);
+    assert.match(dom, /导出历史/);
+    assert.match(dom, /导出词库/);
+    assert.match(dom, /在历史中搜索/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

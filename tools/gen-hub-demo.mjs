@@ -129,7 +129,7 @@ const stats = {
 };
 
 const data = {
-  version: '5.0.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
+  version: '5.1.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
   stats, days, history: rawHistory, dict, cfg,
   providers,
   providerKeys: { 'ark-plan': true, deepseek: true, zai: true, minimax: true, 'mimo-plan': true },
@@ -162,12 +162,15 @@ const pages = [
   { name: 'hub-home', tab: 0, width: 1280, height: 860 },
   { name: 'hub-history', tab: 1, width: 1280, height: 900 },
   { name: 'hub-dict', tab: 2, width: 1280, height: 1100 },
-  { name: 'hub-settings', tab: 3, width: 1280, height: 2900 }
+  { name: 'hub-settings', tab: 3, width: 1280, height: 2900 },
+  { name: 'hub-command', tab: 0, width: 1280, height: 860, openCmd: true }
 ];
 for (const p of pages) {
   const htmlPath = path.join(work, `${p.name}.html`);
+  const extra = p.openCmd ? '<script>setTimeout(function(){window.openCommandPalette();},30)</script>' : '';
   const html = tpl.replace('__DATAJSON__', safeJSON({ ...data, initialTab: p.tab }))
-    .replace('</head>', '<style>*,*::before,*::after{animation:none!important;transition:none!important}</style></head>');
+    .replace('</head>', '<style>*,*::before,*::after{animation:none!important;transition:none!important}</style></head>')
+    .replace('</body>', extra + '</body>');
   fs.writeFileSync(htmlPath, html);
   const shot = path.join(OUT, `${p.name}.png`);
   const r = chrome([
