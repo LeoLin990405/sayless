@@ -1,4 +1,4 @@
-// SaylessBar v5.1 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v5.2 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -186,12 +186,14 @@ final class CapsulePanel {
     private var level: Float = 0
     private var levelSmooth: Float = 0
     private var tick: Timer?
+    private var thinkingTick: Timer?
     private var hideWork: DispatchWorkItem?
 
     func show(mode: Int) {
         hideWork?.cancel()
         ensurePanel()
         setRecordingUI()
+        thinkingTick?.invalidate()
         let tags = ["LISTENING", "TRANSLATING", "ASKING"]
         statusLabel.stringValue = tags[min(max(mode, 0), 2)]
         statusLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.95)
@@ -222,6 +224,13 @@ final class CapsulePanel {
         thinkingLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
         thinkingLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.9)
         thinkingLabel.stringValue = "●  TRANSCRIBING"
+        thinkingTick?.invalidate()
+        var dots = 0
+        thinkingTick = Timer.scheduledTimer(withTimeInterval: 0.38, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            dots = (dots + 1) % 4
+            self.thinkingLabel.stringValue = "●  TRANSCRIBING" + String(repeating: ".", count: dots)
+        }
     }
     func setResult(text: String, ok: Bool, inserted: Bool) {
         ensurePanel()
@@ -232,6 +241,7 @@ final class CapsulePanel {
         barContainer.isHidden = true
         statusLabel.isHidden = true
         thinkingLabel.isHidden = false
+        thinkingTick?.invalidate()
         thinkingLabel.font = NSFont.systemFont(ofSize: 12.5, weight: .medium)
         thinkingLabel.textColor = ok ? NSColor(white: 0.88, alpha: 1) : NSColor(red: 0.98, green: 0.62, blue: 0.62, alpha: 1)
         let preview = String(text.prefix(72)).replacingOccurrences(of: "\n", with: " ")
@@ -240,6 +250,7 @@ final class CapsulePanel {
     }
     func hide() {
         tick?.invalidate()
+        thinkingTick?.invalidate()
         panel?.orderOut(nil)
     }
     private func hideAfter(_ sec: TimeInterval) {
@@ -345,7 +356,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "5.1.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "5.2.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"

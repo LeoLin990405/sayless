@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '5.1.0',
+    version: '5.2.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '5.1.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '5.2.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -193,6 +193,8 @@ test('hub 写操作使用 native 结果回调，不先报成功', () => {
   assert.match(TPL, /id="top-date"/);
   assert.match(TPL, /id="cmd"/);
   assert.match(TPL, /window\.openCommandPalette/);
+  assert.match(TPL, /id="shortcuts"/);
+  assert.match(TPL, /window\.openShortcuts/);
   assert.match(TPL, /highlightText/);
   assert.match(TPL, /class="hero-visual"/);
   assert.match(TPL, /class="mark"/);
@@ -282,6 +284,43 @@ test('hub 命令面板可打开并按关键词过滤', { skip: !fs.existsSync(CH
     assert.match(dom, /导出历史/);
     assert.match(dom, /导出词库/);
     assert.match(dom, /在历史中搜索/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('hub 快捷键帮助层可通过 ? 打开并展示当前热键', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-shortcuts-'));
+  try {
+    const data = demoData();
+    const safe = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const extra = `<script>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+      var opened = document.getElementById('shortcuts').classList.contains('on');
+      var keys = document.getElementById('shortcut-hotkeys').textContent;
+      window.closeShortcuts();
+      var didClose = !document.getElementById('shortcuts').classList.contains('on');
+      var marker = document.createElement('div');
+      marker.id = 'shortcut-marker';
+      marker.textContent = JSON.stringify({ opened: opened, didClose: didClose, keys: keys });
+      document.body.appendChild(marker);
+    </script>`;
+    const htmlPath = path.join(dir, 'hub.html');
+    fs.writeFileSync(htmlPath, TPL.replace('__DATAJSON__', safe).replace('</body>', extra + '</body>'));
+    const r = spawnSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
+      '--dump-dom', `file://${htmlPath}`
+    ], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    const dom = r.stdout || '';
+    assert.doesNotMatch(dom, /id="js-error"/);
+    assert.match(dom, /opened":true/);
+    assert.match(dom, /didClose":true/);
+    assert.match(dom, /⌥Space/);
+    assert.match(dom, /⌥T/);
+    assert.match(dom, /⌥Q/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

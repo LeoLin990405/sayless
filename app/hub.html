@@ -792,6 +792,18 @@ mark{background:rgba(216,255,124,.2);color:var(--accent);border-radius:3px;paddi
   .cmd{padding:10vh 12px 20px}
 }
 
+
+/* shortcuts help */
+.help-trigger{width:30px;justify-content:center;padding:6px 0!important;font-family:var(--mono);font-size:10px;letter-spacing:0}
+.shortcuts-card{width:min(470px,100%)}
+.shortcut-grid{
+  display:grid;grid-template-columns:1fr auto;gap:11px 18px;align-items:center;
+  margin-top:17px;padding-top:15px;border-top:1px solid var(--line);font-size:11.5px;color:var(--sub);
+}
+.shortcut-grid kbd{justify-self:end}
+.shortcut-grid .kbd-group{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;justify-self:end}
+.shortcut-grid .kbd-group kbd{margin:0}
+
 </style>
 </head>
 <body>
@@ -814,6 +826,7 @@ mark{background:rgba(216,255,124,.2);color:var(--accent);border-radius:3px;paddi
   <div class="topline">
     <div class="eyebrow"><span class="eyebrow-dot"></span>SAYLESS / VOICE STUDIO</div>
     <div class="top-actions">
+      <button class="cmd-trigger help-trigger" data-act="open-shortcuts" title="键盘快捷键（?）">?</button>
       <button class="cmd-trigger" data-act="open-cmd" title="命令面板（⌘K）"><kbd>⌘K</kbd><span>命令</span></button>
       <div class="topmeta"><span class="live"></span>本地模式<span class="sep">·</span><span id="top-date"></span></div>
     </div>
@@ -1116,6 +1129,20 @@ mark{background:rgba(216,255,124,.2);color:var(--accent);border-radius:3px;paddi
       <button class="btn ghost mini" id="confirm-no">取消</button>
       <button class="btn mini" id="confirm-yes">确认</button>
     </div>
+  </div>
+</div>
+
+<div class="modal" id="shortcuts">
+  <div class="modal-card shortcuts-card">
+    <div class="m-title">键盘快捷键</div>
+    <div class="shortcut-grid">
+      <span>命令面板</span><kbd>⌘ K</kbd>
+      <span>切换页面</span><kbd>⌘ 1–4</kbd>
+      <span>聚焦历史搜索</span><kbd>/</kbd>
+      <span>关闭弹层 / 取消</span><kbd>Esc</kbd>
+      <span>听写 / 翻译 / 问答</span><span class="kbd-group" id="shortcut-hotkeys">—</span>
+    </div>
+    <div class="m-actions"><button class="btn ghost mini" data-act="close-shortcuts">知道了</button></div>
   </div>
 </div>
 
@@ -1934,7 +1961,8 @@ function commandItems(query) {
     { ico:'⇣', label:'导出历史', hint:'JSON', run:function () { post({ action:'exportHistory' }); } },
     { ico:'⇣', label:'导出词库', hint:'JSON', run:function () { post({ action:'exportDict' }); } },
     { ico:'⇡', label:'导入词库', hint:'JSON', run:function () { post({ action:'importDict' }); } },
-    { ico:'◎', label:'运行体检', hint:'doctor', run:function () { go(3); setTimeout(runDoctor, 120); } }
+    { ico:'◎', label:'运行体检', hint:'doctor', run:function () { go(3); setTimeout(runDoctor, 120); } },
+    { ico:'?', label:'键盘快捷键', hint:'?', run:function () { openShortcuts(); } }
   ];
   if (q) {
     var ql = q.toLowerCase();
@@ -1977,6 +2005,24 @@ function runCommand(index) {
   closeCommandPalette();
   setTimeout(function () { try { it.run(); } catch (e) { toast('命令执行失败', 'warn'); } }, 0);
 }
+function renderShortcutKeys() {
+  var el = $('#shortcut-hotkeys');
+  if (!el) return;
+  el.innerHTML = ['dictate', 'translate', 'ask'].map(function (slot) {
+    return '<kbd>' + esc(hotkeyText(HOTKEYS[slot])) + '</kbd>';
+  }).join('');
+}
+function openShortcuts() {
+  renderShortcutKeys();
+  var el = $('#shortcuts');
+  if (el) el.classList.add('on');
+}
+function closeShortcuts() {
+  var el = $('#shortcuts');
+  if (el) el.classList.remove('on');
+}
+window.openShortcuts = openShortcuts;
+window.closeShortcuts = closeShortcuts;
 window.openCommandPalette = openCommandPalette;
 window.closeCommandPalette = closeCommandPalette;
 window.runCommand = runCommand;
@@ -1988,6 +2034,8 @@ document.addEventListener('click', function (e) {
   var btn = e.target.closest('[data-act]');
   if (!btn) return;
   var act = btn.getAttribute('data-act');
+  if (act === 'open-shortcuts') { openShortcuts(); return; }
+  if (act === 'close-shortcuts') { closeShortcuts(); return; }
   if (act === 'open-cmd') { openCommandPalette(); return; }
   if (act === 'go-settings') return go(3);
   if (act === 'go-history') return go(1);
@@ -2152,6 +2200,9 @@ $('#cmd-list').addEventListener('click', function (e) {
 $('#cmd').addEventListener('click', function (e) {
   if (e.target && e.target.id === 'cmd') closeCommandPalette();
 });
+$('#shortcuts').addEventListener('click', function (e) {
+  if (e.target && e.target.id === 'shortcuts') closeShortcuts();
+});
 document.addEventListener('keydown', function (e) {
   if (APP.cmdOpen) {
     if (e.key === 'Escape') { e.preventDefault(); closeCommandPalette(); return; }
@@ -2179,6 +2230,11 @@ document.addEventListener('keydown', function (e) {
   }
   var tag = String((e.target && e.target.tagName) || '').toLowerCase();
   var typing = tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable);
+  if (e.key === '?' && !APP.cmdOpen && !APP.capturing && !typing) {
+    e.preventDefault();
+    openShortcuts();
+    return;
+  }
   if (e.key === '/' && APP.tab === 1 && !APP.capturing && !typing) {
     e.preventDefault();
     $('#hist-search').focus();
@@ -2218,6 +2274,7 @@ $('#s-key-provider').addEventListener('change', function () {
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && APP.capturing) stopCapture();
   if (e.key === 'Escape' && $('#confirm').classList.contains('on')) closeConfirm();
+  if (e.key === 'Escape' && $('#shortcuts').classList.contains('on')) closeShortcuts();
 });
 window.addEventListener('beforeunload', function () {
   nativePost({ action: 'setCaptureMode', enabled: false });
