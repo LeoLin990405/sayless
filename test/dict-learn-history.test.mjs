@@ -175,7 +175,7 @@ test('doctor --offline --json 输出结构化体检', async (t) => {
   const r = await runCli(['doctor', '--offline', '--json'], { dir });
   assert.equal(r.code, 0, r.stderr);
   const report = JSON.parse(r.stdout);
-  assert.equal(report.version, '4.6.0');
+  assert.equal(report.version, '4.7.0');
   assert.equal(report.config.mode, '600');
   assert.equal(report.asr.adapter, 'whisper');
   assert.ok(Array.isArray(report.providers));

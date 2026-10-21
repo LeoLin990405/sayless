@@ -1,5 +1,26 @@
 # Changelog
 
+## v4.7.0 (2026-10-21)
+
+以「操作结果可信、权限提示、首页可观测性」为主的下一轮全栈迭代。
+
+### Hub
+
+- **操作结果确认**：所有词典/历史写操作带 request id；Swift 在真正写入成功后调用 `hubActionResult`，失败时页面保留输入并提示原因，不再先弹「已添加/已删除」。
+- **首页运行状态**：新增 ASR / 润色 / 翻译 / 交叉家数 / Key 配置数，点击直达设置；首次使用显示未初始化。
+- **初始化/Provider 状态**：保留 v4.6 的一键 init 与 provider 状态 chips；操作提示统一到 native 回调。
+
+### App / 权限
+
+- **麦克风权限预检**：`AVCaptureDevice.authorizationStatus`；未决定时先请求，拒绝/受限时明确提示，不再出现“卡住录音到最后才报没声音”。
+- **通知迁移**：`NSUserNotification` → `UserNotifications`，按需请求授权，失败写入日志；移除弃用 API 警告。
+- **首次权限体验**：麦克风授权成功后自动继续同一次听写（保留 pendingMode）。
+
+### Backend / Tests
+
+- 本版无破坏性 CLI 变更；沿用 v4.6.0。
+- 69 个 Node 集成测试；新增 hub 操作回调/首页状态静态覆盖，继续包含 Chrome headless、mock provider/ASR、假 ffmpeg。
+
 ## v4.6.0 (2026-10-21)
 
 以「首次使用 / 可观测性 / 日常检查」为主的下一轮全栈迭代。
@@ -59,5 +80,5 @@
 - 登录项改为按当前状态 register/unregister。
 - 胶囊成功态恢复 2.2s 文本预览（此前成功立即消失）。
 - 新增 headless 调试口子：`SAYLESS_DUMP_HUB` / `SAYLESS_DUMP_HUB_TAB`。
-- 新增 68 个 Node 集成测试（mock 供应商/ASR + 假 ffmpeg）与 hub Chrome headless 测试；`npm test` / `npm run check`。
+- 新增 67 个 Node 集成测试（mock 供应商/ASR + 假 ffmpeg）与 hub Chrome headless 测试；`npm test` / `npm run check`。
 - 新增 `package.json`、CI、`tools/gen-hub-demo.mjs`（Chrome 截图 + DOM 检查）。

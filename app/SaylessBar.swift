@@ -1,4 +1,4 @@
-// SaylessBar v4.6 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v4.7 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -6,6 +6,7 @@ import AVFoundation
 import WebKit
 import ApplicationServices
 import ServiceManagement
+import UserNotifications
 
 
 
@@ -326,7 +327,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.6.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.7.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -829,9 +830,9 @@ final class HubWindow: NSObject {
         return writeData(Data(text.utf8), to: saylessHistoryFile)
     }
 
-    private func deleteHistory(ts: String) -> Int {
-        guard !ts.isEmpty else { return 0 }
-        guard let raw = try? String(contentsOfFile: saylessHistoryFile, encoding: .utf8) else { return 0 }
+    private func deleteHistory(ts: String) -> (removed: Int, wrote: Bool) {
+        guard !ts.isEmpty else { return (0, false) }
+        guard let raw = try? String(contentsOfFile: saylessHistoryFile, encoding: .utf8) else { return (0, false) }
         var kept: [String] = []
         var removed = 0
         for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -843,8 +844,12 @@ final class HubWindow: NSObject {
             }
             kept.append(String(line))
         }
-        if removed > 0 { _ = writeHistoryLines(kept) }
-        return removed
+        if removed == 0 { return (0, false) }
+        return (removed, writeHistoryLines(kept))
+    }
+
+    private func scheduleRefresh(after delay: TimeInterval = 0.55) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.refresh() }
     }
 
     /// 首次使用：在 App 内运行内置 CLI 的 init，生成 config.json / dictionary.json
@@ -925,6 +930,20 @@ extension HubWindow: WKScriptMessageHandler {
               let data = body.data(using: .utf8),
               let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let action = j["action"] as? String else { return }
+        let rid = stringValue(j["rid"])
+        let dictActionMessages: [String: String] = [
+            "addReplace": "已添加替换", "delReplaceIdx": "已删除替换",
+            "addHot": "已添加热词", "delHot": "已删除热词",
+            "addRule": "已添加风格规则", "delRuleIdx": "已删除风格规则",
+            "addApp": "已创建应用词层", "delApp": "已删除应用词层",
+            "addAppHot": "已添加应用热词", "delAppHot": "已删除应用热词",
+            "addAppReplace": "已添加应用替换", "delAppReplaceIdx": "已删除应用替换"
+        ]
+        let dictActions = Set(dictActionMessages.keys)
+        func reply(_ ok: Bool, _ message: String) {
+            guard !rid.isEmpty else { return }
+            web?.evaluateJavaScript("window.hubActionResult && window.hubActionResult(\(jsStringLiteral(rid)), \(ok ? "true" : "false"), \(jsStringLiteral(message)))")
+        }
 
         var dictChanged = false
 
@@ -1138,14 +1157,23 @@ extension HubWindow: WKScriptMessageHandler {
 
         case "delHistory":
             let ts = stringValue(j["ts"])
-            let removed = deleteHistory(ts: ts)
-            logLine("history delete ts=\(ts) removed=\(removed)")
-            if removed > 0 { refresh() }
+            let result = deleteHistory(ts: ts)
+            logLine("history delete ts=\(ts) removed=\(result.removed) wrote=\(result.wrote)")
+            if result.removed > 0 && result.wrote {
+                reply(true, "已删除 \(result.removed) 条记录")
+                scheduleRefresh()
+            } else {
+                reply(false, result.removed == 0 ? "没有找到这条记录" : "历史写入失败（检查 history.jsonl 权限）")
+            }
 
         case "clearHistory":
-            _ = writeHistoryLines([])
-            logLine("history cleared")
-            refresh()
+            if writeHistoryLines([]) {
+                logLine("history cleared")
+                reply(true, "已清空历史")
+                scheduleRefresh()
+            } else {
+                reply(false, "历史写入失败（检查 history.jsonl 权限）")
+            }
 
         case "runDoctor":
             runDoctor()
@@ -1164,7 +1192,14 @@ extension HubWindow: WKScriptMessageHandler {
             break
         }
 
-        if dictChanged { refresh() }
+        if dictActions.contains(action) {
+            if dictChanged {
+                reply(true, dictActionMessages[action] ?? "词库已更新")
+                scheduleRefresh()
+            } else {
+                reply(false, "词库未写入：可能是重复项，或 dictionary.json 无权限/已损坏")
+            }
+        }
     }
 }
 
@@ -1180,6 +1215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var soundOn = true
     var recordingActive = false  // 正在录音（busy 还包括处理阶段）
     var processingActive = false // 子进程正在转写/润色
+    var micPermissionPending = false
     var activeTranscribe: Process?
     var insertMode = "paste"     // paste | none（App 自己粘贴时的行为）
     var restoreClipboard = true
@@ -1286,10 +1322,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
         edit.addItem(withTitle: "重做", action: Selector(("redo:")), keyEquivalent: "Z")
         edit.addItem(.separator())
-        edit.addItem(withTitle: "剪切", action: Selector(("cut:")), keyEquivalent: "x")
-        edit.addItem(withTitle: "复制", action: Selector(("copy:")), keyEquivalent: "c")
-        edit.addItem(withTitle: "粘贴", action: Selector(("paste:")), keyEquivalent: "v")
-        edit.addItem(withTitle: "全选", action: Selector(("selectAll:")), keyEquivalent: "a")
+        edit.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         NSApp.mainMenu = main
     }
 
@@ -1562,7 +1598,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !carbonHandlerInstalled else { return }
         carbonHandlerInstalled = true
         let box = Unmanaged.passRetained(HotkeyBox(id: -1) { [weak self] id, isUp in self?.hotkey(id, keyUp: isUp) }).toOpaque()
-        var specs = [
+        let specs = [
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
         ]
@@ -1687,6 +1723,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 
     func startRecording() {
+        guard !micPermissionPending else {
+            capsule.hide()
+            logLine("recording ignored while waiting for mic permission")
+            return
+        }
         busy = true
         recordingActive = true
         processingActive = false
@@ -1876,11 +1917,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func notify(_ title: String, _ body: String) {
-        let n = NSUserNotification()
-        n.title = title
-        n.informativeText = body
-        NSUserNotificationCenter.default.deliver(n)
         logLine("notify: \(title) \(body)")
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized, .provisional:
+                Self.deliverNotification(center, title, body)
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+                    if granted {
+                        Self.deliverNotification(center, title, body)
+                    } else {
+                        logLine("notification permission denied: \(error?.localizedDescription ?? "-")")
+                    }
+                }
+            default:
+                logLine("notification unavailable status=\(settings.authorizationStatus.rawValue)")
+            }
+        }
+    }
+
+    static func deliverNotification(_ center: UNUserNotificationCenter, _ title: String, _ body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        center.add(request) { error in
+            if let error { logLine("notification add fail: \(error.localizedDescription)") }
+        }
     }
 }
 

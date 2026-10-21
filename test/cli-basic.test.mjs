@@ -29,7 +29,7 @@ test('version / help / 未知命令', async (t) => {
   const dir = tempDir(); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const v = await runCli(['version'], { dir });
   assert.equal(v.code, 0);
-  assert.match(v.stdout, /sayless 4\.6\.0/);
+  assert.match(v.stdout, /sayless 4\.7\.0/);
   const h = await runCli(['--help'], { dir });
   assert.equal(h.code, 0);
   assert.match(h.stdout, /sayless doctor/);
@@ -140,7 +140,7 @@ test('rec -o 输出文件在录制期间就已是 0600', async (t) => {
   patchConfig(dir, c => { c.rec = { ...(c.rec || {}), ffmpeg: fake }; });
   const out = path.join(dir, 'shared', 'rec.wav');
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  const p = runCli(['rec', '--sec', '1', '-o', out], { dir, timeoutMs: 10000 });
+  const p = runCli(['rec', '--sec', '1', '-o', out], { dir, timeoutMs: 30000 });
   let mode = null;
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 50));

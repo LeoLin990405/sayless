@@ -11,7 +11,25 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.resolve(process.argv[2] || '/tmp/hub-demo');
 const TPL = path.join(ROOT, 'app', 'hub.html');
-const CHROME = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+function findChrome() {
+  if (process.env.CHROME_BIN && fs.existsSync(process.env.CHROME_BIN)) return process.env.CHROME_BIN;
+  const candidates = [];
+  const cache = path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright');
+  try {
+    for (const d of fs.readdirSync(cache)) {
+      if (!d.startsWith('chromium_headless_shell')) continue;
+      const dir = path.join(cache, d);
+      for (const sub of fs.readdirSync(dir)) {
+        candidates.push(path.join(dir, sub, 'chrome-headless-shell'));
+        candidates.push(path.join(dir, sub, 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell'));
+        candidates.push(path.join(dir, sub, 'chrome-headless-shell-mac-x64', 'chrome-headless-shell'));
+      }
+    }
+  } catch { /* playwright not installed */ }
+  candidates.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+  return candidates.find(p => fs.existsSync(p)) || '';
+}
+const CHROME = findChrome();
 
 const today = '2026-10-20';
 const iso = (offset) => {
@@ -111,7 +129,7 @@ const stats = {
 };
 
 const data = {
-  version: '4.6.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
+  version: '4.7.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
   stats, days, history: rawHistory, dict, cfg,
   providers,
   providerKeys: { 'ark-plan': true, deepseek: true, zai: true, minimax: true, 'mimo-plan': true },

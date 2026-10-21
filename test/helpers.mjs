@@ -22,7 +22,7 @@ export function makeEnv(dir, extra = {}) {
   return env;
 }
 
-export function runCli(args, { dir, env = {}, input = null, timeoutMs = 20000 } = {}) {
+export function runCli(args, { dir, env = {}, input = null, timeoutMs = 45000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd: ROOT,

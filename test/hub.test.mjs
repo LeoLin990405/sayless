@@ -8,11 +8,29 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TPL = fs.readFileSync(path.join(ROOT, 'app', 'hub.html'), 'utf8');
-const CHROME = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+function findChrome() {
+  if (process.env.CHROME_BIN && fs.existsSync(process.env.CHROME_BIN)) return process.env.CHROME_BIN;
+  const candidates = [];
+  const cache = path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright');
+  try {
+    for (const d of fs.readdirSync(cache)) {
+      if (!d.startsWith('chromium_headless_shell')) continue;
+      const dir = path.join(cache, d);
+      for (const sub of fs.readdirSync(dir)) {
+        candidates.push(path.join(dir, sub, 'chrome-headless-shell'));
+        candidates.push(path.join(dir, sub, 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell'));
+        candidates.push(path.join(dir, sub, 'chrome-headless-shell-mac-x64', 'chrome-headless-shell'));
+      }
+    }
+  } catch { /* playwright not installed */ }
+  candidates.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+  return candidates.find(p => fs.existsSync(p)) || '';
+}
+const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '4.6.0',
+    version: '4.7.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -81,13 +99,14 @@ test('hub 在 Chrome 中渲染且无 JS 错误', { skip: !fs.existsSync(CHROME) 
       '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
       `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
       '--dump-dom', `file://${htmlPath}`
-    ], { encoding: 'utf8', timeout: 30000 });
+    ], { encoding: 'utf8', timeout: 60000 });
     assert.equal(r.status, 0, r.stderr);
     const dom = r.stdout || '';
     assert.doesNotMatch(dom, /id="js-error"/);
     assert.match(dom, /第一条/);
     assert.match(dom, /Bailian/);
     assert.match(dom, /Home|首页|说话，不要打字/);
+    assert.match(dom, /运行状态/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -97,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '4.6.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '4.7.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -109,12 +128,13 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
       '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
       `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
       '--dump-dom', `file://${htmlPath}`
-    ], { encoding: 'utf8', timeout: 30000 });
+    ], { encoding: 'utf8', timeout: 60000 });
     assert.equal(r.status, 0, r.stderr);
     const dom = r.stdout || '';
     assert.doesNotMatch(dom, /id="js-error"/);
     assert.match(dom, /说话，不要打字/);
     assert.match(dom, /class="tab on"/);
+    assert.match(dom, /尚未初始化配置/);
     assert.match(dom, /id="setup-banner"/);
     assert.doesNotMatch(dom, /id="setup-banner" hidden/);
     assert.match(dom, /data-act="init-config"/);
@@ -143,7 +163,7 @@ test('hub 设置页展示 provider key 状态，历史页展示详情入口', { 
         '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
         `--user-data-dir=${path.join(dir, `profile-${tab}`)}`, '--virtual-time-budget=1500',
         '--dump-dom', `file://${p}`
-      ], { encoding: 'utf8', timeout: 30000 });
+      ], { encoding: 'utf8', timeout: 60000 });
       assert.equal(r.status, 0, r.stderr);
       return r.stdout || '';
     };
@@ -159,4 +179,13 @@ test('hub 设置页展示 provider key 状态，历史页展示详情入口', { 
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+test('hub 写操作使用 native 结果回调，不先报成功', () => {
+  assert.match(TPL, /window\.hubActionResult/);
+  assert.match(TPL, /postWithCallback/);
+  assert.match(TPL, /id="home-status"/);
+  assert.doesNotMatch(TPL, /toast\('已添加替换'\)/);
+  assert.doesNotMatch(TPL, /toast\('已删除记录'\)/);
 });

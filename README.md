@@ -2,7 +2,7 @@
 
 > ⚠️ **声明**：本项目是对 Typeless 应用进行**逆向工程的学习项目**，交互形态按 1:1 复刻仅作学习研究之用，**切勿用于任何商业用途**（详见 [LICENSE](LICENSE)）。与 Typeless 原开发者无任何隶属或授权关系。
 
-**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个 Typeless 风格的菜单栏 App。当前版本 **v4.6.0**（见 [CHANGELOG](CHANGELOG.md)）。
+**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个 Typeless 风格的菜单栏 App。当前版本 **v4.7.0**（见 [CHANGELOG](CHANGELOG.md)）。
 
 干净的自研实现（不含任何第三方听写应用代码），模型走**你自己的套餐**，词语库和听写历史全部本地。
 
@@ -35,7 +35,7 @@
 - **自我学习**：`sayless learn` 用 LCS 智能 diff 自动生成词条，`--mine --apply` 把高频修正回写词库
 - **完全可定制**：`~/.sayless/plugins/` 放一个 `.mjs` 即可接管管线任意环节（见 [PLUGINS.md](PLUGINS.md)）
 - **菜单栏面板（hub）**：数据驱动的四页 UI——洞察统计 + 贡献热力图 / 可搜索历史（复制、**▶ 回放**、**↻ 重转写**、删除、清空；界面最多加载最近 1000 条，统计按全部历史）/ 可视化词典（替换、热词、风格规则、分应用词层）/ 完整设置页（ASR、模型、交叉阵容、Ask、行为、快捷键录制、Key 写入、一键体检）
-- **可靠性**：LLM 429/5xx 自动重试、录音结束才进入转写、配置原子写入、空识别非零退出、粘贴后恢复剪贴板（App 用 NSPasteboard 快照恢复文本/图片/文件；CLI 为文本级）
+- **可靠性**：LLM 429/5xx 自动重试、录音结束才进入转写、配置原子写入、空识别非零退出、粘贴后恢复剪贴板（App 用 NSPasteboard 快照恢复文本/图片/文件；CLI 为文本级）；麦克风权限预检、UserNotifications 原生通知、词典/历史写入失败不再假成功
 
 ```mermaid
 flowchart LR
@@ -267,7 +267,7 @@ flowchart LR
 ## 开发与测试
 
 ```sh
-npm test                     # 68 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
+npm test                     # 69 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
 npm run check                # node --check + 完整测试
 BUILD_ONLY=1 ./app/build.sh  # 只编译打包 App（不装 /Applications、不启动）
 node tools/gen-hub-demo.mjs /tmp/hub-demo  # Chrome headless 渲染 hub 四页截图 + DOM js-error 检查

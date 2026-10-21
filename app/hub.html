@@ -312,6 +312,8 @@ kbd{display:inline-block;background:#3a3838;border:1px solid #4b4747;border-bott
           <button data-act="go-settings">设置</button>
           <button data-act="go-history">全部历史</button>
         </div>
+        <h3 style="margin-top:18px">运行状态</h3>
+        <div class="mini-list" id="home-status"></div>
         <h3 style="margin-top:18px">归档</h3>
         <div class="sub" id="home-recordings" style="margin-top:0"></div>
       </div>
@@ -559,7 +561,7 @@ var DICT = DATA.dict || {};
 var PROVIDERS = Array.isArray(DATA.providers) ? DATA.providers : [];
 var KEYSTATUS = DATA.providerKeys || {};
 var ENV = DATA.env || {};
-var APP = { tab: DATA.initialTab || 0, histQuery: '', dictQuery: '', capturing: null };
+var APP = { tab: DATA.initialTab || 0, histQuery: '', dictQuery: '', capturing: null, reqSeq: 0, pending: {} };
 var MOD_NAMES = { option: '⌥', command: '⌘', control: '⌃', shift: '⇧', none: '' };
 var MOD_LABELS = { option: 'Option', command: 'Command', control: 'Control', shift: 'Shift', none: '无' };
 var CODE_TO_MAC = {
@@ -657,9 +659,19 @@ function nativePost(obj) {
   return false;
 }
 function post(obj) {
-  if (nativePost(obj)) return true;
+  if (!obj) return null;
+  if (obj.action && !obj.rid) obj.rid = 'r' + (++APP.reqSeq);
+  if (nativePost(obj)) return obj.rid;
   toast('预览模式：操作未发送', 'warn');
-  return false;
+  return null;
+}
+function postWithCallback(obj, onOk) {
+  if (!obj) return null;
+  if (obj.action && !obj.rid) obj.rid = 'r' + (++APP.reqSeq);
+  var rid = obj.rid;
+  if (!nativePost(obj)) { toast('预览模式：操作未发送', 'warn'); return null; }
+  if (onOk) APP.pending[rid] = onOk;
+  return rid;
 }
 var _confirmCb = null;
 function askConfirm(msg, cb) {
@@ -741,8 +753,39 @@ function renderHomeShortcuts() {
   el.textContent = hotkeyText(HOTKEYS.dictate) + ' 说话即输入，' + hotkeyText(HOTKEYS.translate) + ' 说话即翻译，'
     + hotkeyText(HOTKEYS.ask) + ' 说话即问答。语音默认只走本地 whisper.cpp。';
 }
+function providerDefaultModel(prov) {
+  var p = (CFG.providers || {})[prov] || {};
+  return p.model || '';
+}
+function renderHomeStatus() {
+  var el = $('#home-status');
+  if (!el) return;
+  if (!ENV.configExists) {
+    el.innerHTML = '<div class="mini-row"><span class="tt">状态</span><span class="tx" style="color:#f6e2b0">尚未初始化配置</span></div>';
+    return;
+  }
+  var asr = (CFG.asr || {}).adapter || 'whisper';
+  var asrText = asr === 'whisper'
+    ? (ENV.whisperBinExists && ENV.whisperModelExists ? '本地 whisper 就绪' : '本地 whisper（模型/CLI 缺失）')
+    : asr;
+  var llm = CFG.llm || {};
+  var llmModel = llm.model || providerDefaultModel(llm.provider) || 'provider 默认';
+  var keys = Object.keys(KEYSTATUS).filter(function (k) { return !!KEYSTATUS[k]; }).length;
+  var cross = ((CFG.cross || {}).models || []).length;
+  var rows = [
+    ['ASR', asrText],
+    ['润色', (llm.provider || '—') + ' / ' + llmModel],
+    ['翻译', (CFG.translate || {}).to || 'en'],
+    ['交叉', cross + ' 家'],
+    ['Key', keys + ' / ' + PROVIDERS.length + ' 已配置']
+  ];
+  el.innerHTML = rows.map(function (r) {
+    return '<div class="mini-row" data-act="go-settings" style="cursor:pointer"><span class="tt">' + esc(r[0]) + '</span><span class="tx">' + esc(r[1]) + '</span></div>';
+  }).join('');
+}
 function renderHome() {
   renderHomeShortcuts();
+  renderHomeStatus();
   var s = DATA.stats || {};
   var cards = [
     { v: fmt(s.chars), k: '口述字数', sub: s.entries ? (s.avgChars + ' 字/条') : '还没有听写' },
@@ -1152,6 +1195,16 @@ window.keySaved = function () {
   renderProviderStatus();
   toast('API Key 已写入本地配置');
 };
+window.hubActionResult = function (rid, ok, message) {
+  var cb = rid ? APP.pending[rid] : null;
+  if (rid) delete APP.pending[rid];
+  if (ok) {
+    if (cb) cb();
+    toast(message || '已保存');
+  } else {
+    toast(message || '操作失败', 'warn');
+  }
+};
 window.hubActionDone = function (msg) {
   if (APP.pendingKeyProvider) {
     var el = $('#key-status');
@@ -1263,37 +1316,33 @@ document.addEventListener('click', function (e) {
     if (!ts) return;
     askConfirm('删除这条听写记录？（录音归档不会删除）', function () {
       post({ action: 'delHistory', ts: ts });
-      toast('已删除记录');
     });
     return;
   }
   if (act === 'clear-history') {
     askConfirm('清空全部听写历史？词库和录音归档不受影响。', function () {
       post({ action: 'clearHistory' });
-      toast('已清空历史');
     });
     return;
   }
   if (act === 'add-replace') {
     var from = $('#dict-new-from').value.trim(), to = $('#dict-new-to').value;
     if (!from) return toast('先填原词', 'warn');
-    if (post({ action: 'addReplace', from: from, to: to })) {
+    postWithCallback({ action: 'addReplace', from: from, to: to }, function () {
       $('#dict-new-from').value = ''; $('#dict-new-to').value = '';
-      toast('已添加替换');
-    }
+    });
     return;
   }
   if (act === 'del-replace') {
     askConfirm('删除这条替换规则？', function () {
       post({ action: 'delReplaceIdx', index: num(btn.getAttribute('data-i'), -1) });
-      toast('已删除');
     });
     return;
   }
   if (act === 'add-hot') {
     var w = $('#dict-new-hot').value.trim();
     if (!w) return toast('先填热词', 'warn');
-    if (post({ action: 'addHot', word: w })) { $('#dict-new-hot').value = ''; toast('已添加热词'); }
+    postWithCallback({ action: 'addHot', word: w }, function () { $('#dict-new-hot').value = ''; });
     return;
   }
   if (act === 'del-hot') {
@@ -1302,27 +1351,25 @@ document.addEventListener('click', function (e) {
   if (act === 'add-rule') {
     var rule = $('#dict-new-rule').value.trim();
     if (!rule) return toast('先填规则', 'warn');
-    if (post({ action: 'addRule', rule: rule })) { $('#dict-new-rule').value = ''; toast('已添加规则'); }
+    postWithCallback({ action: 'addRule', rule: rule }, function () { $('#dict-new-rule').value = ''; });
     return;
   }
   if (act === 'del-rule') {
     askConfirm('删除这条风格规则？', function () {
       post({ action: 'delRuleIdx', index: num(btn.getAttribute('data-i'), -1) });
-      toast('已删除');
     });
     return;
   }
   if (act === 'add-app') {
     var app = $('#dict-new-app').value.trim();
     if (!app) return toast('先填应用名', 'warn');
-    if (post({ action: 'addApp', app: app })) { $('#dict-new-app').value = ''; toast('已创建词层'); }
+    postWithCallback({ action: 'addApp', app: app }, function () { $('#dict-new-app').value = ''; });
     return;
   }
   if (act === 'del-app') {
     var app2 = btn.getAttribute('data-app') || '';
     askConfirm('删除「' + app2 + '」的整个词层？', function () {
       post({ action: 'delApp', app: app2 });
-      toast('已删除词层');
     });
     return;
   }
@@ -1332,12 +1379,22 @@ document.addEventListener('click', function (e) {
     if (act === 'add-app-hot') {
       var hw = $('[data-role="app-hot"]', card).value.trim();
       if (!hw) return toast('先填热词', 'warn');
-      post({ action: 'addAppHot', app: appName, word: hw }); toast('已加热词'); return;
+      postWithCallback({ action: 'addAppHot', app: appName, word: hw }, function () {
+        var input = $('[data-role="app-hot"]', card);
+        if (input) input.value = '';
+      });
+      return;
     }
     var af = $('[data-role="app-from"]', card).value.trim();
     var at = $('[data-role="app-to"]', card).value;
     if (!af) return toast('先填原词', 'warn');
-    post({ action: 'addAppReplace', app: appName, from: af, to: at }); toast('已加替换'); return;
+    postWithCallback({ action: 'addAppReplace', app: appName, from: af, to: at }, function () {
+      var fromEl = $('[data-role="app-from"]', card);
+      var toEl = $('[data-role="app-to"]', card);
+      if (fromEl) fromEl.value = '';
+      if (toEl) toEl.value = '';
+    });
+    return;
   }
   if (act === 'del-app-hot') {
     post({ action: 'delAppHot', app: btn.getAttribute('data-app') || '', word: btn.getAttribute('data-word') || '' }); return;
