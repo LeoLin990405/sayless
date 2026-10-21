@@ -1,4 +1,4 @@
-// SaylessBar v4.9 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v5.0 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -182,6 +182,7 @@ final class CapsulePanel {
     private var bars: [NSView] = []
     private var barContainer: NSView!
     private var thinkingLabel: NSTextField!
+    private var statusLabel: NSTextField!
     private var level: Float = 0
     private var levelSmooth: Float = 0
     private var tick: Timer?
@@ -191,6 +192,9 @@ final class CapsulePanel {
         hideWork?.cancel()
         ensurePanel()
         setRecordingUI()
+        let tags = ["LISTENING", "TRANSLATING", "ASKING"]
+        statusLabel.stringValue = tags[min(max(mode, 0), 2)]
+        statusLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.95)
         tick?.invalidate()
         tick = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -213,9 +217,11 @@ final class CapsulePanel {
         xButton.isHidden = true
         checkButton.isHidden = true
         barContainer.isHidden = true
+        statusLabel.isHidden = true
         thinkingLabel.isHidden = false
-        thinkingLabel.textColor = NSColor(white: 0.62, alpha: 1)
-        thinkingLabel.stringValue = "Thinking"
+        thinkingLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        thinkingLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.9)
+        thinkingLabel.stringValue = "●  TRANSCRIBING"
     }
     func setResult(text: String, ok: Bool, inserted: Bool) {
         ensurePanel()
@@ -224,6 +230,7 @@ final class CapsulePanel {
         xButton.isHidden = true
         checkButton.isHidden = true
         barContainer.isHidden = true
+        statusLabel.isHidden = true
         thinkingLabel.isHidden = false
         thinkingLabel.font = NSFont.systemFont(ofSize: 12.5, weight: .medium)
         thinkingLabel.textColor = ok ? NSColor(white: 0.88, alpha: 1) : NSColor(red: 0.98, green: 0.62, blue: 0.62, alpha: 1)
@@ -245,17 +252,20 @@ final class CapsulePanel {
         xButton.isHidden = false
         checkButton.isHidden = false
         barContainer.isHidden = false
-        thinkingLabel.isHidden = true
+        statusLabel?.isHidden = false
+        thinkingLabel?.isHidden = true
     }
     private func pillButton(_ title: String, _ x: CGFloat) -> NSButton {
-        let btn = NSButton(frame: NSRect(x: x, y: 12, width: 28, height: 28))
+        let btn = NSButton(frame: NSRect(x: x, y: 15, width: 28, height: 28))
         btn.wantsLayer = true
-        btn.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
-        btn.layer?.cornerRadius = 6
+        btn.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.07).cgColor
+        btn.layer?.cornerRadius = 14
+        btn.layer?.borderWidth = 1
+        btn.layer?.borderColor = NSColor.white.withAlphaComponent(0.09).cgColor
         btn.isBordered = false
         btn.title = title
-        btn.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        btn.contentTintColor = NSColor.white
+        btn.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        btn.contentTintColor = NSColor.white.withAlphaComponent(0.9)
         return btn
     }
     private func ensurePanel() {
@@ -263,8 +273,8 @@ final class CapsulePanel {
             setRecordingUI()
             return
         }
-        // Typeless 精确 token：440 宽 / #1d1a1a / radius 8 / 1px 边框 / shadow 0 0 20
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 52),
+        // Sayless Studio 胶囊：460×58 / 墨绿 / 酸橙波形 / 18px 圆角
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 58),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.level = .floating
@@ -273,44 +283,51 @@ final class CapsulePanel {
         p.backgroundColor = .clear
         p.hasShadow = true
 
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 52))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 58))
         root.wantsLayer = true
-        root.layer?.backgroundColor = NSColor(red: 0x1d/255.0, green: 0x1a/255.0, blue: 0x1a/255.0, alpha: 1).cgColor
-        root.layer?.cornerRadius = 8
+        root.layer?.backgroundColor = NSColor(calibratedRed: 0.05, green: 0.065, blue: 0.045, alpha: 0.97).cgColor
+        root.layer?.cornerRadius = 18
         root.layer?.borderWidth = 1
-        root.layer?.borderColor = NSColor.white.withAlphaComponent(0.28).cgColor
+        root.layer?.borderColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.22).cgColor
         root.layer?.shadowColor = NSColor.black.cgColor
-        root.layer?.shadowOpacity = 0.5
-        root.layer?.shadowRadius = 10
+        root.layer?.shadowOpacity = 0.55
+        root.layer?.shadowRadius = 24
 
-        xButton = pillButton("✕", 10)
+        xButton = pillButton("✕", 14)
         xButton.target = self
         xButton.action = #selector(xClicked)
 
-        barContainer = NSView(frame: NSRect(x: 158, y: 14, width: 124, height: 24))
-        var bx: CGFloat = 0
-        for _ in 0..<15 {
+        statusLabel = NSTextField(labelWithString: "LISTENING")
+        statusLabel.font = NSFont.monospacedSystemFont(ofSize: 9.5, weight: .medium)
+        statusLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.95)
+        statusLabel.frame = NSRect(x: 52, y: 20, width: 100, height: 18)
+        statusLabel.alignment = .left
+
+        barContainer = NSView(frame: NSRect(x: 152, y: 17, width: 158, height: 24))
+        var bx: CGFloat = 8
+        for _ in 0..<18 {
             let bar = NSView(frame: NSRect(x: bx, y: 5, width: 3, height: 14))
             bar.wantsLayer = true
             bar.layer?.cornerRadius = 1.5
-            bar.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.92).cgColor
+            bar.layer?.backgroundColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.9).cgColor
             barContainer.addSubview(bar)
             bars.append(bar)
             bx += 8
         }
         barContainer.wantsLayer = true
 
-        checkButton = pillButton("✓", 402)
+        checkButton = pillButton("✓", 418)
         checkButton.target = self
         checkButton.action = #selector(checkClicked)
 
-        thinkingLabel = NSTextField(labelWithString: "Thinking")
-        thinkingLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
-        thinkingLabel.textColor = NSColor(white: 0.62, alpha: 1)
+        thinkingLabel = NSTextField(labelWithString: "●  TRANSCRIBING")
+        thinkingLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        thinkingLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.9)
         thinkingLabel.alignment = .center
-        thinkingLabel.frame = NSRect(x: 0, y: 12, width: 440, height: 28)
+        thinkingLabel.frame = NSRect(x: 0, y: 16, width: 460, height: 26)
         thinkingLabel.isHidden = true
 
+        root.addSubview(statusLabel)
         root.addSubview(barContainer)
         root.addSubview(xButton)
         root.addSubview(checkButton)
@@ -318,7 +335,7 @@ final class CapsulePanel {
         p.contentView = root
         if let screen = NSScreen.main {
             let f = screen.frame
-            p.setFrameOrigin(NSPoint(x: f.midX - 220, y: f.origin.y + 130))
+            p.setFrameOrigin(NSPoint(x: f.midX - 230, y: f.origin.y + 130))
         }
         panel = p
     }
@@ -328,7 +345,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.9.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "5.0.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"

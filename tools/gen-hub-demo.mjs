@@ -129,7 +129,7 @@ const stats = {
 };
 
 const data = {
-  version: '4.9.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
+  version: '5.0.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
   stats, days, history: rawHistory, dict, cfg,
   providers,
   providerKeys: { 'ark-plan': true, deepseek: true, zai: true, minimax: true, 'mimo-plan': true },
@@ -166,7 +166,8 @@ const pages = [
 ];
 for (const p of pages) {
   const htmlPath = path.join(work, `${p.name}.html`);
-  const html = tpl.replace('__DATAJSON__', safeJSON({ ...data, initialTab: p.tab }));
+  const html = tpl.replace('__DATAJSON__', safeJSON({ ...data, initialTab: p.tab }))
+    .replace('</head>', '<style>*,*::before,*::after{animation:none!important;transition:none!important}</style></head>');
   fs.writeFileSync(htmlPath, html);
   const shot = path.join(OUT, `${p.name}.png`);
   const r = chrome([

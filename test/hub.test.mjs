@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '4.9.0',
+    version: '5.0.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -105,7 +105,7 @@ test('hub 在 Chrome 中渲染且无 JS 错误', { skip: !fs.existsSync(CHROME) 
     assert.doesNotMatch(dom, /id="js-error"/);
     assert.match(dom, /第一条/);
     assert.match(dom, /Bailian/);
-    assert.match(dom, /Home|首页|说话，不要打字/);
+    assert.match(dom, /首页|不要打字/);
     assert.match(dom, /运行状态/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '4.9.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '5.0.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -132,7 +132,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
     assert.equal(r.status, 0, r.stderr);
     const dom = r.stdout || '';
     assert.doesNotMatch(dom, /id="js-error"/);
-    assert.match(dom, /说话，不要打字/);
+    assert.match(dom, /不要打字/);
     assert.match(dom, /class="tab on"/);
     assert.match(dom, /尚未初始化配置/);
     assert.match(dom, /id="setup-banner"/);
@@ -190,6 +190,9 @@ test('hub 写操作使用 native 结果回调，不先报成功', () => {
   assert.match(TPL, /data-act="import-dict"/);
   assert.match(TPL, /data-act="export-history"/);
   assert.match(TPL, /id="hist-more"/);
+  assert.match(TPL, /id="top-date"/);
+  assert.match(TPL, /class="hero-visual"/);
+  assert.match(TPL, /class="mark"/);
   assert.match(TPL, /window\.appendHistory/);
   assert.match(TPL, /window\.historySearchDone/);
   assert.match(TPL, /action: 'searchHistory'/);

@@ -30,7 +30,7 @@ import { pathToFileURL } from 'node:url';
 const [nmaj] = process.versions.node.split('.').map(Number);
 if (nmaj < 18) { console.error(`✗ sayless 需要 Node 18+（当前 ${process.versions.node}）：brew install node 或升级`); process.exit(1); }
 
-const VERSION = '4.9.0';
+const VERSION = '5.0.0';
 const DIR = process.env.SAYLESS_DIR ? path.resolve(process.env.SAYLESS_DIR) : path.join(os.homedir(), '.sayless');
 const CFG = path.join(DIR, 'config.json');
 const DICT = path.join(DIR, 'dictionary.json');
