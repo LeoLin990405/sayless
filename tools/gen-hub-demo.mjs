@@ -129,7 +129,7 @@ const stats = {
 };
 
 const data = {
-  version: '5.2.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
+  version: '6.0.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
   stats, days, history: rawHistory, dict, cfg,
   providers,
   providerKeys: { 'ark-plan': true, deepseek: true, zai: true, minimax: true, 'mimo-plan': true },
@@ -162,7 +162,7 @@ const pages = [
   { name: 'hub-home', tab: 0, width: 1280, height: 860 },
   { name: 'hub-history', tab: 1, width: 1280, height: 900 },
   { name: 'hub-dict', tab: 2, width: 1280, height: 1100 },
-  { name: 'hub-settings', tab: 3, width: 1280, height: 2900 },
+  { name: 'hub-settings', tab: 3, width: 1280, height: 820 },
   { name: 'hub-command', tab: 0, width: 1280, height: 860, openCmd: true },
   { name: 'hub-shortcuts', tab: 0, width: 1280, height: 860, openShortcuts: true }
 ];

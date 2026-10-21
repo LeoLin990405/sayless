@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '5.2.0',
+    version: '6.0.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -105,8 +105,8 @@ test('hub 在 Chrome 中渲染且无 JS 错误', { skip: !fs.existsSync(CHROME) 
     assert.doesNotMatch(dom, /id="js-error"/);
     assert.match(dom, /第一条/);
     assert.match(dom, /Bailian/);
-    assert.match(dom, /首页|不要打字/);
-    assert.match(dom, /运行状态/);
+    assert.match(dom, /首页|写成文字/);
+    assert.match(dom, /系统|运行状态/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '5.2.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '6.0.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -132,7 +132,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
     assert.equal(r.status, 0, r.stderr);
     const dom = r.stdout || '';
     assert.doesNotMatch(dom, /id="js-error"/);
-    assert.match(dom, /不要打字/);
+    assert.match(dom, /写成文字/);
     assert.match(dom, /class="tab on"/);
     assert.match(dom, /尚未初始化配置/);
     assert.match(dom, /id="setup-banner"/);
@@ -321,6 +321,49 @@ test('hub 快捷键帮助层可通过 ? 打开并展示当前热键', { skip: !f
     assert.match(dom, /⌥Space/);
     assert.match(dom, /⌥T/);
     assert.match(dom, /⌥Q/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('hub 设置分类导航只显示当前组，并提示未保存状态', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-settingsux-'));
+  try {
+    const data = demoData();
+    data.initialTab = 3;
+    const safe = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const extra = `<script>
+      var visible = [].slice.call(document.querySelectorAll('#settings-form .section')).filter(function (s) { return s.style.display !== 'none'; }).map(function (s) { return s.getAttribute('data-group'); });
+      var intro = document.getElementById('settings-intro').textContent;
+      showSettingsGroup('model');
+      var modelVisible = [].slice.call(document.querySelectorAll('#settings-form .section')).filter(function (s) { return s.style.display !== 'none'; }).map(function (s) { return s.getAttribute('data-group'); });
+      var active = document.querySelector('.settings-nav.on').getAttribute('data-group');
+      var input = document.getElementById('s-llm-model');
+      input.value = 'changed-model';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      var dirty = document.getElementById('save-status').textContent;
+      var marker = document.createElement('div');
+      marker.id = 'settingsux-marker';
+      marker.textContent = JSON.stringify({ visible: visible, intro: intro, modelVisible: modelVisible, active: active, dirty: dirty });
+      document.body.appendChild(marker);
+    </script>`;
+    const htmlPath = path.join(dir, 'hub.html');
+    fs.writeFileSync(htmlPath, TPL.replace('__DATAJSON__', safe).replace('</body>', extra + '</body>'));
+    const r = spawnSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
+      '--dump-dom', `file://${htmlPath}`
+    ], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    const dom = r.stdout || '';
+    assert.doesNotMatch(dom, /id="js-error"/);
+    assert.match(dom, /settingsux-marker/);
+    assert.match(dom, /visible":\["voice"\]/);
+    assert.match(dom, /modelVisible":\["model","model"\]/);
+    assert.match(dom, /active":"model"/);
+    assert.match(dom, /dirty":"未保存"/);
+    assert.match(dom, /润色和翻译/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

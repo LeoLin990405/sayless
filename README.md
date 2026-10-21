@@ -1,8 +1,8 @@
 # Sayless
 
-> ⚠️ **声明**：本项目是对 Typeless 应用进行**逆向工程的学习项目**，交互形态按 1:1 复刻仅作学习研究之用，**切勿用于任何商业用途**（详见 [LICENSE](LICENSE)）。与 Typeless 原开发者无任何隶属或授权关系。
+> ⚠️ **声明**：本项目最初以 Typeless 作为产品研究参照，但 **v6.0 起 UI 已完全重构为独立的 Sayless Paper 视觉系统**，不再复刻其界面；仅作学习研究之用，**切勿用于任何商业用途**（详见 [LICENSE](LICENSE)）。与原开发者无任何隶属或授权关系。
 
-**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个 Typeless 风格的菜单栏 App。当前版本 **v5.2.0**（见 [CHANGELOG](CHANGELOG.md)）。
+**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个独立的「纸面工作台」菜单栏 App。当前版本 **v6.0.0**（见 [CHANGELOG](CHANGELOG.md)）。
 
 干净的自研实现（不含任何第三方听写应用代码），模型走**你自己的套餐**，词语库和听写历史全部本地。
 
@@ -14,21 +14,24 @@
 ## 界面速览
 
 <p align="center">
-  <img src="docs/screenshots/capsule.png" width="520" alt="录音胶囊"><br/>
-  <sub>录音胶囊：✕ 取消 · 实时波形 · ✓ 完成 —— Sayless Studio 墨绿酸橙胶囊</sub>
+  <img src="docs/screenshots/capsule.png" width="520" alt="录音纸片"><br/>
+  <sub>录音纸片：朱砂录音点 · 墨色波形 · 红色停止 —— Sayless Paper</sub>
+</p>
+<p align="center">
+  <img src="docs/screenshots/menubar.png" width="300" alt="菜单栏弹出面板"><br/>
+  <sub>菜单栏：自定义 Paper 弹出面板（最近条目 / 三种模式 / 快捷入口）</sub>
 </p>
 
-| 首页：洞察 + 贡献热力图 | 历史：搜索 / 回放 / 重转写 / 删除 |
+| 首页：刊头 / 印章 / 52 周书写记录 | 历史：纸面台账 / 搜索 / 回放 / 重转写 |
 |---|---|
 | ![首页](docs/screenshots/hub-home.png) | ![历史](docs/screenshots/hub-history.png) |
-| **词典：替换 / 热词 / 风格规则 / 分应用词层** | **设置：ASR / 模型 / 交叉阵容 / Ask / 行为** |
-| ![词典](docs/screenshots/hub-dict.png) | ![设置上](docs/screenshots/hub-settings-top.png) |
+| **词典：索引 / 替换 / 热词 / 分应用词层** | **设置：分类导航 / 单组表单 / 保存状态** |
+| ![词典](docs/screenshots/hub-dict.png) | ![设置](docs/screenshots/hub-settings.png) |
 
 | **⌘K 命令面板** | **? 快捷键帮助** |
 |---|---|
 | ![命令面板](docs/screenshots/hub-command.png) | ![快捷键](docs/screenshots/hub-shortcuts.png) |
 
-<p align="center"><img src="docs/screenshots/hub-settings-bottom.png" width="920" alt="设置下：快捷键录制 / API Key / 体检 / 关于"></p>
 
 ## 特性一览
 
@@ -38,12 +41,12 @@
 - **个性化词语库**：专有名词保护、确定性替换、风格规则、按前台应用自动叠加分应用词层；hub 里可增删改
 - **自我学习**：`sayless learn` 用 LCS 智能 diff 自动生成词条，`--mine --apply` 把高频修正回写词库
 - **完全可定制**：`~/.sayless/plugins/` 放一个 `.mjs` 即可接管管线任意环节（见 [PLUGINS.md](PLUGINS.md)）
-- **菜单栏面板（hub）**：数据驱动的四页 UI——洞察统计 + 26 周热力图 / 可搜索历史（**全量深度搜索 + 分页加载 + 命中高亮**、复制、回放、重转写、删除、清空、导出 JSON）/ 可视化词典（替换、热词、风格规则、分应用词层）/ 完整设置页（ASR、模型、交叉阵容、Ask、行为、快捷键录制、Key 写入、一键体检）；**⌘K 命令面板**可跳页、执行操作或直接搜索历史，⌘1–4 切页，`/` 聚焦搜索，`?` 打开快捷键帮助
+- **Sayless Paper 界面**：暖纸底 + 墨色排版 + 朱砂印章；顶部刊头导航取代侧栏，首页是刊头/印章/52 周书写记录，历史是纸面台账，设置是「分类导航 + 单组表单 + 保存状态」；**⌘K 命令面板**、⌘1–4 切页、`/` 聚焦搜索、`?` 快捷键帮助；历史支持全量搜索、分页与命中高亮
 - **可靠性**：LLM 429/5xx 自动重试、录音结束才进入转写、配置原子写入、空识别非零退出、粘贴后恢复剪贴板（App 用 NSPasteboard 快照恢复文本/图片/文件；CLI 为文本级）；麦克风权限预检、UserNotifications 原生通知、词典/历史写入失败不再假成功
 
 ```mermaid
 flowchart LR
-    Mic[麦克风] --> Cap[录音胶囊<br/>AVAudioEngine 直录]
+    Mic[麦克风] --> Cap[录音纸片<br/>AVAudioEngine 直录]
     Cap --> ASR{ASR 适配器}
     ASR -->|whisper 默认| W["whisper.cpp（本地·离线）"]
     ASR -->|可选云端| C[MiMo / 方舟 / OpenAI 兼容]
@@ -58,9 +61,9 @@ flowchart LR
     Paste --> Hist[(history.jsonl<br/>洞察 + 热力图)]
 ```
 
-## 与 Typeless 对比
+## 与 Typeless 的差异
 
-本项目是 Typeless 的**逆向学习项目**：通过对其 2.8.1 版本的行为观察与本机分析，学习一款成熟听写产品的交互设计与工程形态，并按 1:1 复刻交互（浮条与 hub），代码为**完全独立的干净实现**（不含其任何代码与资源）。逆向过程中沉淀的差异（对比基于 Typeless 2.8.1 公开行为与本机观察，2026-10）：
+本项目最初以 Typeless 2.8.1 作为产品研究参照，但在 **v6.0.0** 中 UI 已彻底重构为独立的「Sayless Paper」视觉系统：暖纸、墨色、朱砂印章、顶部刊头、纸面台账、分类导航设置和自定义菜单栏弹出面板。代码为**完全独立的干净实现**（不含其任何代码与资源）。差异（对比基于 Typeless 2.8.1 公开行为与本机观察，2026-10）：
 
 | 维度 | Typeless | Sayless |
 |---|---|---|
@@ -72,10 +75,10 @@ flowchart LR
 | 扩展性 | 闭源，不可扩展 | **插件 API**：3 个管线钩子 + 自定义供应商 + 自定义工作流 |
 | 数据归属 | 听写历史存于服务方 | 全部本地：历史 / 词库 / 反馈都在 `~/.sayless/`，随时导出删除 |
 | 透明度 | 闭源 | 源码可审计；每个模型端点可 `sayless doctor` 实测连通与鉴权 |
-| 交互形态 | 浮条 + hub 面板 | **Sayless Studio** 浮条 + hub（✕/波形/✓ 胶囊、26 周热力图、四页导航） |
+| 交互形态 | 浮条 + hub 面板 | **Sayless Paper**：纸面录音条 + 顶部刊头 hub + 自定义菜单栏弹出面板（v6 起完全独立设计） |
 | 平台 | macOS | macOS，CLI 与菜单栏 App 可完全独立使用 |
 
-一句话：**Typeless 卖的是省心，Sayless 给的是控制权**——模型、数据、词库、管线每一环都握在自己手里。再次强调：本项目仅作逆向学习之用，**切勿商用**。
+一句话：**Typeless 卖的是省心，Sayless 给的是控制权**——模型、数据、词库、管线每一环都握在自己手里。再次强调：本项目仅作学习研究之用，**切勿商用**。
 
 ## 快速开始
 
@@ -108,11 +111,11 @@ SAYLESS_SIGN=adhoc BUILD_ONLY=1 ./build.sh   # 跳过钥匙串里的持久证书
 
 ## SaylessBar 菜单栏 App
 
-- **录音胶囊**：屏幕底部浮出墨绿酸橙胶囊（Listening / Translating / Asking 状态、✕ / 实时波形 / ✓），Transcribing 态带循环点动效、结果预览自隐，Esc 取消，90s 自动收尾
-- **hub 四页**：首页（口述字数/条数/活跃天/连续天 + 26 周热力图）｜历史记录（实时搜索、复制、回放、重转写、删除、清空）｜词典（替换/热词/词频/风格规则/分应用层增删改）｜设置（见下）
-- **设置页**：ASR 引擎/路径/语种、润色供应商+模型+重试、翻译、交叉阵容与仲裁、Ask（引擎/代理/结果数）、工作流、提示音/PTT/结果投放/剪贴板恢复、**快捷键录制（冲突内联提示）**、**供应商 API Key 写入 + 各 provider 已配置状态**（密码框不回显，key 只落本地 config.json 0600）、**一键体检**——保存深合并写回 config.json，数字/空值也能正确清除
+- **录音纸片**：屏幕底部浮出米纸小条（朱砂录音点、墨色波形、红色停止），Listening / Translating / Asking 状态，Transcribing 带循环点动效；Esc 取消，90s 自动收尾
+- **hub 四页**：首页（刊头 + 口述字数/条数/活跃天/连续天 + 52 周书写记录）｜历史记录（纸面台账、全量搜索、复制、回放、重转写、删除、清空）｜词典（索引式替换/热词/词频/风格规则/分应用层增删改）｜设置（分类导航 + 单组表单，见下）
+- **设置页**：左侧分类导航（语音 / 模型 / 质量 / 交互 / 数据）+ 单组表单，避免一次列出 11 个 section；顶部与底部均可保存，未保存/已保存有状态提示。ASR 引擎/路径/语种、润色供应商+模型+重试、翻译、交叉阵容与仲裁、Ask（引擎/代理/结果数）、工作流、提示音/PTT/结果投放/剪贴板恢复、**快捷键录制（冲突内联提示）**、**供应商 API Key 写入 + 各 provider 已配置状态**（密码框不回显，key 只落本地 config.json 0600）、**一键体检**——保存深合并写回 config.json，数字/空值也能正确清除
 - **键位**：设置页点击键位后按下新组合，保存到 config.json 的 `"hotkeys"`（slot: dictate/translate/ask，key 为 macOS 键码，modifier: option/command/control/shift/none），重启 App 生效
-- **菜单**：打开主面板 / 历史 / 设置 / 紧急停止录音 / 请求辅助功能授权 / 登录启动 / 词语库 / 数据目录 / 日志
+- **菜单栏**：点击状态栏 S 图标弹出**自定义 Paper 面板**（不是系统 NSMenu）——开始听写 / 翻译 / 问答、最近 3 条、工作台 / 历史 / 设置、更多菜单（登录启动 / 词库 / 数据目录 / 日志 / 辅助功能 / 紧急停止 / 退出）
 
 构建与签名：
 
@@ -271,7 +274,7 @@ flowchart LR
 ## 开发与测试
 
 ```sh
-npm test                     # 73 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
+npm test                     # 74 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
 npm run check                # node --check + 完整测试
 BUILD_ONLY=1 ./app/build.sh  # 只编译打包 App（不装 /Applications、不启动）
 node tools/gen-hub-demo.mjs /tmp/hub-demo  # Chrome headless 渲染 hub 四页截图 + DOM js-error 检查

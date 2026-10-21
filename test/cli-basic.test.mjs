@@ -29,7 +29,7 @@ test('version / help / 未知命令', async (t) => {
   const dir = tempDir(); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const v = await runCli(['version'], { dir });
   assert.equal(v.code, 0);
-  assert.match(v.stdout, /sayless 5\.2\.0/);
+  assert.match(v.stdout, /sayless 6\.0\.0/);
   const h = await runCli(['--help'], { dir });
   assert.equal(h.code, 0);
   assert.match(h.stdout, /sayless doctor/);

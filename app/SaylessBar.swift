@@ -1,4 +1,4 @@
-// SaylessBar v5.2 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v6.0 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -8,6 +8,7 @@ import ApplicationServices
 import ServiceManagement
 import UserNotifications
 import UniformTypeIdentifiers
+import SwiftUI
 
 
 
@@ -183,6 +184,7 @@ final class CapsulePanel {
     private var barContainer: NSView!
     private var thinkingLabel: NSTextField!
     private var statusLabel: NSTextField!
+    private var dotView: NSView!
     private var level: Float = 0
     private var levelSmooth: Float = 0
     private var tick: Timer?
@@ -196,14 +198,14 @@ final class CapsulePanel {
         thinkingTick?.invalidate()
         let tags = ["LISTENING", "TRANSLATING", "ASKING"]
         statusLabel.stringValue = tags[min(max(mode, 0), 2)]
-        statusLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.95)
+        statusLabel.textColor = NSColor(calibratedWhite: 0.22, alpha: 1)
         tick?.invalidate()
         tick = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
             guard let self else { return }
             for (i, b) in self.bars.enumerated() {
                 let phase = sin(Date().timeIntervalSince1970 * 7 + Double(i) * 0.9)
                 let h = 8 + CGFloat(self.levelSmooth) * 18 * CGFloat(0.4 + 0.6 * abs(phase)) + CGFloat(abs(phase)) * 4
-                b.animator().frame = NSRect(x: b.frame.origin.x, y: (24 - h) / 2, width: 3, height: max(3, h))
+                b.animator().frame = NSRect(x: b.frame.origin.x, y: (24 - h) / 2, width: 2, height: max(2, h))
             }
         }
         panel?.orderFrontRegardless()
@@ -216,34 +218,34 @@ final class CapsulePanel {
         ensurePanel()
         panel?.orderFrontRegardless()
         tick?.invalidate()
-        xButton.isHidden = true
-        checkButton.isHidden = true
-        barContainer.isHidden = true
+        dotView.isHidden = true
         statusLabel.isHidden = true
+        barContainer.isHidden = true
+        checkButton.isHidden = true
         thinkingLabel.isHidden = false
-        thinkingLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-        thinkingLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.9)
-        thinkingLabel.stringValue = "●  TRANSCRIBING"
+        thinkingLabel.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
+        thinkingLabel.textColor = NSColor(calibratedWhite: 0.22, alpha: 1)
+        thinkingLabel.stringValue = "TRANSCRIBING"
         thinkingTick?.invalidate()
         var dots = 0
         thinkingTick = Timer.scheduledTimer(withTimeInterval: 0.38, repeats: true) { [weak self] _ in
             guard let self else { return }
             dots = (dots + 1) % 4
-            self.thinkingLabel.stringValue = "●  TRANSCRIBING" + String(repeating: ".", count: dots)
+            self.thinkingLabel.stringValue = "TRANSCRIBING" + String(repeating: ".", count: dots)
         }
     }
     func setResult(text: String, ok: Bool, inserted: Bool) {
         ensurePanel()
         panel?.orderFrontRegardless()
         tick?.invalidate()
-        xButton.isHidden = true
-        checkButton.isHidden = true
-        barContainer.isHidden = true
+        dotView.isHidden = true
         statusLabel.isHidden = true
+        barContainer.isHidden = true
+        checkButton.isHidden = true
         thinkingLabel.isHidden = false
         thinkingTick?.invalidate()
         thinkingLabel.font = NSFont.systemFont(ofSize: 12.5, weight: .medium)
-        thinkingLabel.textColor = ok ? NSColor(white: 0.88, alpha: 1) : NSColor(red: 0.98, green: 0.62, blue: 0.62, alpha: 1)
+        thinkingLabel.textColor = ok ? NSColor(calibratedWhite: 0.18, alpha: 1) : NSColor(calibratedRed: 0.62, green: 0.18, blue: 0.12, alpha: 1)
         let preview = String(text.prefix(72)).replacingOccurrences(of: "\n", with: " ")
         thinkingLabel.stringValue = (ok ? "✓ " : "✗ ") + preview
         hideAfter(ok ? 2.2 : 3.5)
@@ -260,11 +262,11 @@ final class CapsulePanel {
         DispatchQueue.main.asyncAfter(deadline: .now() + sec, execute: w)
     }
     private func setRecordingUI() {
-        xButton.isHidden = false
-        checkButton.isHidden = false
-        barContainer.isHidden = false
+        dotView?.isHidden = false
         statusLabel?.isHidden = false
-        thinkingLabel?.isHidden = true
+        barContainer.isHidden = false
+        checkButton.isHidden = false
+        thinkingLabel.isHidden = true
     }
     private func pillButton(_ title: String, _ x: CGFloat) -> NSButton {
         let btn = NSButton(frame: NSRect(x: x, y: 15, width: 28, height: 28))
@@ -284,8 +286,8 @@ final class CapsulePanel {
             setRecordingUI()
             return
         }
-        // Sayless Studio 胶囊：460×58 / 墨绿 / 酸橙波形 / 18px 圆角
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 58),
+        // Sayless Paper 录音纸片：420×64 / 米纸 / 墨色波形 / 红色停止
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 64),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.level = .floating
@@ -294,59 +296,69 @@ final class CapsulePanel {
         p.backgroundColor = .clear
         p.hasShadow = true
 
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 58))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 64))
         root.wantsLayer = true
-        root.layer?.backgroundColor = NSColor(calibratedRed: 0.05, green: 0.065, blue: 0.045, alpha: 0.97).cgColor
-        root.layer?.cornerRadius = 18
+        root.layer?.backgroundColor = NSColor(calibratedRed: 0.965, green: 0.945, blue: 0.902, alpha: 0.99).cgColor
+        root.layer?.cornerRadius = 4
         root.layer?.borderWidth = 1
-        root.layer?.borderColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.22).cgColor
-        root.layer?.shadowColor = NSColor.black.cgColor
-        root.layer?.shadowOpacity = 0.55
-        root.layer?.shadowRadius = 24
+        root.layer?.borderColor = NSColor(calibratedWhite: 0.12, alpha: 0.32).cgColor
+        root.layer?.shadowColor = NSColor(calibratedWhite: 0.1, alpha: 1).cgColor
+        root.layer?.shadowOpacity = 0.28
+        root.layer?.shadowRadius = 18
+        root.layer?.shadowOffset = NSSize(width: 3, height: -4)
 
-        xButton = pillButton("✕", 14)
-        xButton.target = self
-        xButton.action = #selector(xClicked)
+        dotView = NSView(frame: NSRect(x: 18, y: 27, width: 8, height: 8))
+        dotView.wantsLayer = true
+        dotView.layer?.backgroundColor = NSColor(calibratedRed: 0.78, green: 0.29, blue: 0.17, alpha: 1).cgColor
+        dotView.layer?.cornerRadius = 4
 
         statusLabel = NSTextField(labelWithString: "LISTENING")
-        statusLabel.font = NSFont.monospacedSystemFont(ofSize: 9.5, weight: .medium)
-        statusLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.95)
-        statusLabel.frame = NSRect(x: 52, y: 20, width: 100, height: 18)
+        statusLabel.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .medium)
+        statusLabel.textColor = NSColor(calibratedWhite: 0.22, alpha: 1)
+        statusLabel.frame = NSRect(x: 34, y: 23, width: 104, height: 16)
         statusLabel.alignment = .left
 
-        barContainer = NSView(frame: NSRect(x: 152, y: 17, width: 158, height: 24))
-        var bx: CGFloat = 8
+        barContainer = NSView(frame: NSRect(x: 154, y: 20, width: 154, height: 24))
+        var bx: CGFloat = 0
         for _ in 0..<18 {
-            let bar = NSView(frame: NSRect(x: bx, y: 5, width: 3, height: 14))
+            let bar = NSView(frame: NSRect(x: bx, y: 5, width: 2, height: 14))
             bar.wantsLayer = true
-            bar.layer?.cornerRadius = 1.5
-            bar.layer?.backgroundColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.9).cgColor
+            bar.layer?.cornerRadius = 1
+            bar.layer?.backgroundColor = NSColor(calibratedWhite: 0.17, alpha: 0.86).cgColor
             barContainer.addSubview(bar)
             bars.append(bar)
-            bx += 8
+            bx += 8.4
         }
         barContainer.wantsLayer = true
 
-        checkButton = pillButton("✓", 418)
+        checkButton = NSButton(frame: NSRect(x: 376, y: 18, width: 28, height: 28))
+        checkButton.wantsLayer = true
+        checkButton.layer?.backgroundColor = NSColor(calibratedRed: 0.78, green: 0.29, blue: 0.17, alpha: 1).cgColor
+        checkButton.layer?.cornerRadius = 3
+        checkButton.layer?.borderWidth = 0
+        checkButton.isBordered = false
+        checkButton.title = "■"
+        checkButton.font = NSFont.systemFont(ofSize: 9, weight: .bold)
+        checkButton.contentTintColor = NSColor(calibratedRed: 0.98, green: 0.95, blue: 0.89, alpha: 1)
         checkButton.target = self
         checkButton.action = #selector(checkClicked)
 
-        thinkingLabel = NSTextField(labelWithString: "●  TRANSCRIBING")
-        thinkingLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-        thinkingLabel.textColor = NSColor(calibratedRed: 0.85, green: 1.0, blue: 0.49, alpha: 0.9)
+        thinkingLabel = NSTextField(labelWithString: "TRANSCRIBING")
+        thinkingLabel.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
+        thinkingLabel.textColor = NSColor(calibratedWhite: 0.22, alpha: 1)
         thinkingLabel.alignment = .center
-        thinkingLabel.frame = NSRect(x: 0, y: 16, width: 460, height: 26)
+        thinkingLabel.frame = NSRect(x: 0, y: 20, width: 420, height: 24)
         thinkingLabel.isHidden = true
 
+        root.addSubview(dotView)
         root.addSubview(statusLabel)
         root.addSubview(barContainer)
-        root.addSubview(xButton)
         root.addSubview(checkButton)
         root.addSubview(thinkingLabel)
         p.contentView = root
         if let screen = NSScreen.main {
             let f = screen.frame
-            p.setFrameOrigin(NSPoint(x: f.midX - 230, y: f.origin.y + 130))
+            p.setFrameOrigin(NSPoint(x: f.midX - 210, y: f.origin.y + 124))
         }
         panel = p
     }
@@ -356,7 +368,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "5.2.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "6.0.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -1435,6 +1447,277 @@ extension HubWindow: WKScriptMessageHandler {
     }
 }
 
+
+
+func keyCodeDisplay(_ code: UInt32) -> String {
+    let map: [UInt32: String] = [
+        0:"A",1:"S",2:"D",3:"F",4:"H",5:"G",6:"Z",7:"X",8:"C",9:"V",
+        11:"B",12:"Q",13:"W",14:"E",15:"R",16:"Y",17:"T",
+        18:"1",19:"2",20:"3",21:"4",22:"6",23:"5",24:"=",25:"9",26:"7",27:"-",28:"8",29:"0",
+        30:"]",31:"O",32:"U",33:"[",34:"I",35:"P",36:"Return",37:"L",38:"J",39:"'",40:"K",
+        41:";",42:"\\",43:",",44:"/",45:"N",46:"M",47:".",48:"Tab",49:"Space",50:"`",51:"Delete",53:"Esc",
+        96:"F5",97:"F6",98:"F7",99:"F3",100:"F8",101:"F9",103:"F11",105:"F13",107:"F14",109:"F10",
+        111:"F12",113:"F15",114:"Help",115:"Home",116:"PageUp",117:"ForwardDelete",118:"F4",119:"End",
+        120:"F2",121:"PageDown",122:"F1",123:"Left",124:"Right",125:"Down",126:"Up"
+    ]
+    return map[code] ?? "Key\(code)"
+}
+
+// ---------- 菜单栏弹出面板（Paper） ----------
+enum PaperPalette {
+    static let paper = Color(red: 0.949, green: 0.922, blue: 0.867)
+    static let sheet = Color(red: 0.984, green: 0.969, blue: 0.933)
+    static let ink = Color(red: 0.114, green: 0.106, blue: 0.090)
+    static let ink2 = Color(red: 0.227, green: 0.208, blue: 0.173)
+    static let muted = Color(red: 0.494, green: 0.459, blue: 0.400)
+    static let faint = Color(red: 0.659, green: 0.620, blue: 0.549)
+    static let line = Color(red: 0.847, green: 0.804, blue: 0.725)
+    static let accent = Color(red: 0.780, green: 0.290, blue: 0.173)
+    static let green = Color(red: 0.243, green: 0.353, blue: 0.282)
+    static let gold = Color(red: 0.663, green: 0.506, blue: 0.220)
+    static let red = Color(red: 0.667, green: 0.227, blue: 0.180)
+}
+
+struct RecentNote: Identifiable {
+    let id = UUID()
+    let time: String
+    let mode: String
+    let text: String
+}
+
+struct MenuBarView: View {
+    let statusText: String
+    let statusColor: Color
+    let hotkeyDictate: String
+    let hotkeyTranslate: String
+    let hotkeyAsk: String
+    let recent: [RecentNote]
+    let loginEnabled: Bool
+    let onStart: () -> Void
+    let onTranslate: () -> Void
+    let onAsk: () -> Void
+    let onHub: () -> Void
+    let onHistory: () -> Void
+    let onSettings: () -> Void
+    let onRecent: () -> Void
+    let onLogin: () -> Void
+    let onDict: () -> Void
+    let onData: () -> Void
+    let onLog: () -> Void
+    let onAX: () -> Void
+    let onStop: () -> Void
+    let onQuit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 2).fill(PaperPalette.ink).frame(width: 31, height: 31)
+                    Text("S").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundColor(PaperPalette.sheet)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Sayless").font(.system(size: 19, weight: .semibold, design: .serif)).foregroundColor(PaperPalette.ink)
+                    Text("VOICE NOTEBOOK").font(.system(size: 6.5, weight: .medium, design: .monospaced)).tracking(1.3).foregroundColor(PaperPalette.muted)
+                }
+                Spacer()
+                HStack(spacing: 5) {
+                    Circle().fill(statusColor).frame(width: 6, height: 6)
+                    Text(statusText).font(.system(size: 7, weight: .medium, design: .monospaced)).tracking(0.8).foregroundColor(PaperPalette.muted)
+                }
+            }
+
+            Rectangle().fill(PaperPalette.line).frame(height: 1).padding(.vertical, 13)
+
+            Button(action: onStart) {
+                HStack(spacing: 11) {
+                    Circle().fill(PaperPalette.accent).frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("开始听写").font(.system(size: 17, weight: .semibold, design: .serif))
+                        Text("点击，或按快捷键").font(.system(size: 7.5, weight: .regular, design: .monospaced)).opacity(0.65)
+                    }
+                    Spacer()
+                    Text(hotkeyDictate).font(.system(size: 8.5, weight: .medium, design: .monospaced)).padding(.horizontal, 7).padding(.vertical, 4).background(Color.white.opacity(0.08)).cornerRadius(2)
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 62)
+                .foregroundColor(PaperPalette.sheet)
+                .background(PaperPalette.ink)
+                .cornerRadius(2)
+            }.buttonStyle(.plain)
+
+            HStack(spacing: 8) {
+                modeButton("翻译", hotkeyTranslate, onTranslate)
+                modeButton("问答", hotkeyAsk, onAsk)
+            }.padding(.top, 8)
+
+            Rectangle().fill(PaperPalette.line).frame(height: 1).padding(.vertical, 13)
+
+            Text("最近条目").font(.system(size: 7, weight: .medium, design: .monospaced)).tracking(1.2).foregroundColor(PaperPalette.muted)
+                .padding(.bottom, 5)
+
+            if recent.isEmpty {
+                Text("还没有听写。").font(.system(size: 11, design: .serif)).foregroundColor(PaperPalette.muted).padding(.vertical, 12)
+            } else {
+                ForEach(recent) { note in
+                    Button(action: onRecent) {
+                        HStack(alignment: .top, spacing: 9) {
+                            Text(note.time).font(.system(size: 7.5, design: .monospaced)).foregroundColor(PaperPalette.faint).frame(width: 55, alignment: .leading)
+                            Text(note.text).font(.system(size: 10.5)).foregroundColor(PaperPalette.ink2).lineLimit(1).truncationMode(.tail)
+                            Spacer(minLength: 6)
+                            Text(note.mode).font(.system(size: 6.5, weight: .medium, design: .monospaced)).foregroundColor(PaperPalette.muted)
+                        }
+                        .padding(.vertical, 7)
+                        .contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                    Rectangle().fill(PaperPalette.line.opacity(0.55)).frame(height: 1)
+                }
+            }
+
+            Spacer(minLength: 10)
+
+            Rectangle().fill(PaperPalette.line).frame(height: 1).padding(.bottom, 10)
+
+            HStack(spacing: 13) {
+                footerButton("工作台", onHub)
+                footerButton("历史", onHistory)
+                footerButton("设置", onSettings)
+                Spacer()
+                Menu {
+                    Button(loginEnabled ? "✓ 登录时启动" : "登录时启动", action: onLogin)
+                    Button("打开词语库", action: onDict)
+                    Button("打开数据目录", action: onData)
+                    Button("查看日志", action: onLog)
+                    Button("请求辅助功能授权", action: onAX)
+                    Divider()
+                    Button("紧急停止", action: onStop)
+                    Button("退出 Sayless", action: onQuit)
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 11)).foregroundColor(PaperPalette.muted)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+        }
+        .padding(17)
+        .frame(width: 344, height: 432, alignment: .topLeading)
+        .background(PaperPalette.paper)
+    }
+
+    private func modeButton(_ title: String, _ key: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(title).font(.system(size: 10.5, weight: .medium))
+                Spacer()
+                Text(key).font(.system(size: 7.5, design: .monospaced)).foregroundColor(PaperPalette.muted)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 31)
+            .foregroundColor(PaperPalette.ink2)
+            .overlay(RoundedRectangle(cornerRadius: 2).stroke(PaperPalette.line, lineWidth: 1))
+        }.buttonStyle(.plain)
+    }
+
+    private func footerButton(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 8.5, weight: .medium)).foregroundColor(PaperPalette.ink2)
+        }.buttonStyle(.plain)
+    }
+}
+
+final class MenuBarPopover: NSObject {
+    private let popover = NSPopover()
+    private weak var app: AppDelegate?
+    private weak var button: NSStatusBarButton?
+
+    init(app: AppDelegate, button: NSStatusBarButton) {
+        self.app = app
+        self.button = button
+        super.init()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.appearance = NSAppearance(named: .aqua)
+    }
+
+    func toggle() {
+        if popover.isShown { popover.performClose(nil); return }
+        show()
+    }
+
+    func show() {
+        guard let app, let button else { return }
+        let view = makeView(app)
+        let host = NSHostingController(rootView: view)
+        host.view.frame = NSRect(x: 0, y: 0, width: 344, height: 432)
+        popover.contentViewController = host
+        popover.contentSize = NSSize(width: 344, height: 432)
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func makeView(_ app: AppDelegate) -> MenuBarView {
+        let statusText: String
+        let statusColor: Color
+        if app.recordingActive {
+            statusText = "RECORDING"; statusColor = PaperPalette.accent
+        } else if app.busy {
+            statusText = "WORKING"; statusColor = PaperPalette.gold
+        } else {
+            statusText = "READY"; statusColor = PaperPalette.green
+        }
+        let recent = recentNotes()
+        let login = SMAppService.mainApp.status == .enabled
+        return MenuBarView(
+            statusText: statusText,
+            statusColor: statusColor,
+            hotkeyDictate: app.hotkeyDisplay("dictate"),
+            hotkeyTranslate: app.hotkeyDisplay("translate"),
+            hotkeyAsk: app.hotkeyDisplay("ask"),
+            recent: recent,
+            loginEnabled: login,
+            onStart: { [weak self, weak app] in self?.closeThen { app?.toggle() } },
+            onTranslate: { [weak self, weak app] in self?.closeThen { app?.translateToggle() } },
+            onAsk: { [weak self, weak app] in self?.closeThen { app?.askToggle() } },
+            onHub: { [weak self, weak app] in self?.closeThen { app?.showHub() } },
+            onHistory: { [weak self, weak app] in self?.closeThen { app?.showHistoryTab() } },
+            onSettings: { [weak self, weak app] in self?.closeThen { app?.showSettingsTab() } },
+            onRecent: { [weak self, weak app] in self?.closeThen { app?.showHistoryTab() } },
+            onLogin: { [weak self, weak app] in self?.closeThen { app?.toggleLoginItem() } },
+            onDict: { [weak self, weak app] in self?.closeThen { app?.openDict() } },
+            onData: { [weak self, weak app] in self?.closeThen { app?.openDataDir() } },
+            onLog: { [weak self, weak app] in self?.closeThen { app?.openLog() } },
+            onAX: { [weak self, weak app] in self?.closeThen { app?.requestAX() } },
+            onStop: { [weak self, weak app] in self?.closeThen { app?.forceStop() } },
+            onQuit: { NSApp.terminate(nil) }
+        )
+    }
+
+    private func closeThen(_ action: @escaping () -> Void) {
+        popover.performClose(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { action() }
+    }
+
+    private func recentNotes() -> [RecentNote] {
+        let objects = readHistoryObjects().sorted {
+            let a = parseISODate(($0["ts"] as? String) ?? "") ?? .distantPast
+            let b = parseISODate(($1["ts"] as? String) ?? "") ?? .distantPast
+            return a > b
+        }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MM/dd HH:mm"
+        return objects.prefix(3).map { o in
+            let ts = parseISODate((o["ts"] as? String) ?? "")
+            let mode = (o["mode"] as? String) ?? "-"
+            let modeLabel: String
+            if mode == "dictate" { modeLabel = "听写" }
+            else if mode == "ask" { modeLabel = "问答" }
+            else if mode.hasPrefix("translate:") { modeLabel = "译 " + mode.dropFirst(10).uppercased() }
+            else { modeLabel = mode }
+            let text = String((o["out"] as? String) ?? "").prefix(40).replacingOccurrences(of: "\n", with: " ")
+            return RecentNote(time: ts.map(fmt.string) ?? "—", mode: modeLabel, text: String(text))
+        }
+    }
+}
+
 // ---------- 主应用 ----------
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
@@ -1492,6 +1775,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var stopWork: DispatchWorkItem?
     let capsule = CapsulePanel()
     let hub = HubWindow()
+    var menuBarPopover: MenuBarPopover?
     let recorder = AudioRecorder()
     var wavPath: String { saylessDataDir + "/last-utterance.wav" }
     var childEnv: [String: String] {
@@ -1504,25 +1788,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "🎙"
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "听写", action: #selector(toggle), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "听写并翻译", action: #selector(translateToggle), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "语音问答", action: #selector(askToggle), keyEquivalent: ""))
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "打开主面板…", action: #selector(showHub), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "紧急停止录音", action: #selector(forceStop), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "请求辅助功能授权…", action: #selector(requestAX), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "登录时启动", action: #selector(toggleLoginItem), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "听写历史…", action: #selector(showHistoryTab), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "设置…", action: #selector(showSettingsTab), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "打开词语库…", action: #selector(openDict), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "打开数据目录…", action: #selector(openDataDir), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "查看日志…", action: #selector(openLog), keyEquivalent: ""))
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "退出 SaylessBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        for item in menu.items { item.target = self }
-        statusItem.menu = menu
+        statusItem.button?.image = makeStatusIcon()
+        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.toolTip = "Sayless — Voice Notebook"
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(toggleMenuPanel)
+        if let b = statusItem.button {
+            menuBarPopover = MenuBarPopover(app: self, button: b)
+        }
         loadAppConfig()
         registerHotkeys()
         checkAX()
@@ -1942,6 +2215,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: saylessDataDir)
         NSWorkspace.shared.open(URL(fileURLWithPath: saylessDataDir))
     }
+    @objc func toggleMenuPanel() {
+        menuBarPopover?.toggle()
+    }
+
+    func hotkeyDisplay(_ slot: String) -> String {
+        guard let h = hotkeys[slot] else { return "—" }
+        let mods: [String: String] = ["option": "⌥", "command": "⌘", "control": "⌃", "shift": "⇧", "none": ""]
+        return (mods[h.mods] ?? "") + keyCodeDisplay(h.key)
+    }
+
+    func makeStatusIcon() -> NSImage {
+        let img = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            NSColor.black.setStroke()
+            let outline = NSBezierPath(roundedRect: NSRect(x: 1.5, y: 1.5, width: 15, height: 15), xRadius: 3, yRadius: 3)
+            outline.lineWidth = 1.4
+            outline.stroke()
+            let font = NSFont(name: "Georgia-Bold", size: 10) ?? NSFont.boldSystemFont(ofSize: 10)
+            let text = NSAttributedString(string: "S", attributes: [.font: font, .foregroundColor: NSColor.black])
+            let sz = text.size()
+            text.draw(at: NSPoint(x: (18 - sz.width) / 2, y: (18 - sz.height) / 2 + 0.5))
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 12.5, y: 0.5, width: 4, height: 4)).fill()
+            return true
+        }
+        img.isTemplate = true
+        return img
+    }
+
     @objc func showHub() { hub.show(tab: 0) }
     @objc func requestAX() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
