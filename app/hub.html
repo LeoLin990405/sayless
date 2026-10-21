@@ -112,6 +112,7 @@ h2.sec .note{font-size:11px;color:var(--muted);font-weight:400;letter-spacing:0;
 .search:focus{border-color:#4f6d93;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
 .toolbar .count{font-size:11.5px;color:var(--muted);white-space:nowrap}
 .hist-list{display:flex;flex-direction:column;gap:7px}
+.hist-more{display:flex;justify-content:center;margin-top:12px}
 .hist-row{display:grid;grid-template-columns:92px 74px minmax(0,1fr) auto;align-items:center;gap:12px;background:var(--card);border:1px solid #343232;border-radius:11px;padding:11px 13px;transition:border-color .15s,background .15s}
 .hist-row:hover{border-color:#454242;background:#2b2a2a}
 .hist-time{font-family:Menlo,monospace;font-size:10.5px;color:var(--muted);line-height:1.45}
@@ -334,6 +335,7 @@ kbd{display:inline-block;background:#3a3838;border:1px solid #4b4747;border-bott
       <span class="count" id="hist-count"></span>
     </div>
     <div class="hist-list" id="hist-list"></div>
+    <div class="hist-more"><button class="btn ghost mini" id="hist-more" data-act="load-more-history" style="display:none">加载更早记录</button></div>
   </div>
 
   <!-- 词典 -->
@@ -568,7 +570,8 @@ var DICT = DATA.dict || {};
 var PROVIDERS = Array.isArray(DATA.providers) ? DATA.providers : [];
 var KEYSTATUS = DATA.providerKeys || {};
 var ENV = DATA.env || {};
-var APP = { tab: DATA.initialTab || 0, histQuery: '', dictQuery: '', capturing: null, reqSeq: 0, pending: {} };
+var APP = { tab: DATA.initialTab || 0, histQuery: '', dictQuery: '', capturing: null, reqSeq: 0, pending: {}, historyTotal: 0, searchEntries: null, searchTotal: 0, searchPending: false, searchRid: null, searchTimer: null };
+APP.historyTotal = (DATA.stats && DATA.stats.entries) || (DATA.history || []).length;
 var MOD_NAMES = { option: '⌥', command: '⌘', control: '⌃', shift: '⇧', none: '' };
 var MOD_LABELS = { option: 'Option', command: 'Command', control: 'Control', shift: 'Shift', none: '无' };
 var CODE_TO_MAC = {
@@ -850,43 +853,119 @@ function filteredHistory() {
     });
   });
 }
+function updateHistMore(show) {
+  var more = $('#hist-more');
+  if (!more) return;
+  var remaining = (APP.historyTotal || 0) - HISTORY.length;
+  if (show && remaining > 0) {
+    more.style.display = 'inline-flex';
+    more.disabled = false;
+    more.textContent = '加载更早记录（剩余 ' + remaining + ' 条）';
+  } else {
+    more.style.display = 'none';
+  }
+}
+function histRow(e) {
+  var m = modeLabel(e.mode);
+  var rec = e.rec ? String(e.rec) : '';
+  var actions = '<button class="iconbtn" data-act="toggle-detail" title="详情">ⓘ</button>' +
+    '<button class="iconbtn" data-act="copy-hist" title="复制">⧉</button>';
+  if (rec) {
+    actions += '<button class="iconbtn" data-act="play" data-file="' + attr(rec) + '" title="回放">▶</button>';
+    actions += '<button class="iconbtn" data-act="retranscribe" data-file="' + attr(rec) + '" title="重转写">↻</button>';
+  }
+  actions += '<button class="iconbtn danger" data-act="del-hist" data-ts="' + attr(e.ts) + '" title="删除">✕</button>';
+  var detail = '<div class="hist-detail" hidden>' +
+    '<div><div class="hd-label">ASR 原文</div><pre class="hd-pre">' + esc(e.raw || '（无原文记录）') + '</pre></div>' +
+    '<div class="hd-meta">' + timingText(e.timings) + (e.app ? ' · 应用 ' + esc(e.app) : '') + (rec ? ' · 录音 ' + esc(rec) : '') + '</div>' +
+    '</div>';
+  return '<div class="hist-row" data-ts="' + attr(e.ts) + '">' +
+    '<div class="hist-time">' + esc(timeLabel(e.ts)) + '</div>' +
+    '<div><span class="mode ' + m.cls + '">' + esc(m.text) + '</span></div>' +
+    '<div class="hist-body"><div class="hist-text">' + esc(e.out || '') + '</div>' +
+    (e.app ? '<div class="hist-app">应用 · ' + esc(e.app) + '</div>' : '') +
+    '</div>' +
+    '<div class="hist-actions">' + actions + '</div>' +
+    detail +
+    '</div>';
+}
 function renderHistory() {
-  var list = filteredHistory();
-  var total = (DATA.stats && DATA.stats.entries) || HISTORY.length;
-  var loaded = HISTORY.length;
-  var truncated = loaded < total;
-  $('#hist-count').textContent = APP.histQuery
-    ? list.length + ' / ' + loaded + ' 条' + (truncated ? '（仅最近 ' + loaded + ' 条可搜）' : '')
-    : loaded + (truncated ? ' / ' + total : '') + ' 条';
+  var q = APP.histQuery.trim();
+  var list, countText;
+  if (q) {
+    if (APP.searchPending) {
+      $('#hist-count').textContent = '搜索中…';
+      $('#hist-list').innerHTML = '<div class="empty">正在搜索全部历史…</div>';
+      updateHistMore(false);
+      return;
+    }
+    list = APP.searchEntries || [];
+    var st = APP.searchTotal || 0;
+    countText = list.length + (st > list.length ? ' / ' + st : '') + ' 条匹配'
+      + (st > list.length ? '（显示前 ' + list.length + ' 条）' : '');
+  } else {
+    var total = APP.historyTotal || HISTORY.length;
+    var loaded = HISTORY.length;
+    countText = loaded + (loaded < total ? ' / ' + total : '') + ' 条';
+    list = HISTORY;
+  }
+  $('#hist-count').textContent = countText;
   if (!list.length) {
-    $('#hist-list').innerHTML = '<div class="empty">' + (APP.histQuery ? '没有匹配的记录' : '还没有听写记录') + '</div>';
+    $('#hist-list').innerHTML = '<div class="empty">' + (q ? '没有匹配的记录' : '还没有听写记录') + '</div>';
+    updateHistMore(!q);
     return;
   }
-  $('#hist-list').innerHTML = list.map(function (e, i) {
-    var m = modeLabel(e.mode);
-    var rec = e.rec ? String(e.rec) : '';
-    var actions = '<button class="iconbtn" data-act="toggle-detail" title="详情">ⓘ</button>' +
-      '<button class="iconbtn" data-act="copy-hist" title="复制">⧉</button>';
-    if (rec) {
-      actions += '<button class="iconbtn" data-act="play" data-file="' + attr(rec) + '" title="回放">▶</button>';
-      actions += '<button class="iconbtn" data-act="retranscribe" data-file="' + attr(rec) + '" title="重转写">↻</button>';
-    }
-    actions += '<button class="iconbtn danger" data-act="del-hist" data-ts="' + attr(e.ts) + '" title="删除">✕</button>';
-    var detail = '<div class="hist-detail" hidden>' +
-      '<div><div class="hd-label">ASR 原文</div><pre class="hd-pre">' + esc(e.raw || '（无原文记录）') + '</pre></div>' +
-      '<div class="hd-meta">' + timingText(e.timings) + (e.app ? ' · 应用 ' + esc(e.app) : '') + (rec ? ' · 录音 ' + esc(rec) : '') + '</div>' +
-      '</div>';
-    return '<div class="hist-row" data-ts="' + attr(e.ts) + '">' +
-      '<div class="hist-time">' + esc(timeLabel(e.ts)) + '</div>' +
-      '<div><span class="mode ' + m.cls + '">' + esc(m.text) + '</span></div>' +
-      '<div class="hist-body"><div class="hist-text">' + esc(e.out || '') + '</div>' +
-      (e.app ? '<div class="hist-app">应用 · ' + esc(e.app) + '</div>' : '') +
-      '</div>' +
-      '<div class="hist-actions">' + actions + '</div>' +
-      detail +
-      '</div>';
-  }).join('');
+  $('#hist-list').innerHTML = list.map(histRow).join('');
+  updateHistMore(!q);
 }
+function onHistSearch(value) {
+  APP.histQuery = value || '';
+  var q = APP.histQuery.trim();
+  if (APP.searchTimer) { clearTimeout(APP.searchTimer); APP.searchTimer = null; }
+  if (!q) {
+    APP.searchEntries = null; APP.searchTotal = 0; APP.searchPending = false; APP.searchRid = null;
+    renderHistory();
+    return;
+  }
+  APP.searchPending = true;
+  APP.searchEntries = null;
+  APP.searchTotal = 0;
+  APP.searchRid = null;
+  renderHistory();
+  APP.searchTimer = setTimeout(function () {
+    if (APP.histQuery.trim() !== q) return;
+    var rid = post({ action: 'searchHistory', query: q, limit: 200 });
+    APP.searchRid = rid;
+    if (!rid) {
+      // 浏览器预览模式没有 native：退回本地已加载记录搜索
+      APP.searchEntries = filteredHistory();
+      APP.searchTotal = APP.searchEntries.length;
+      APP.searchPending = false;
+      renderHistory();
+    }
+  }, 220);
+}
+window.appendHistory = function (entries, total) {
+  entries = entries || [];
+  var seen = {};
+  HISTORY.forEach(function (e) { seen[e.ts] = true; });
+  var added = 0;
+  entries.forEach(function (e) {
+    if (e && e.ts && !seen[e.ts]) { HISTORY.push(e); seen[e.ts] = true; added++; }
+  });
+  if (total) APP.historyTotal = total;
+  HISTORY.sort(function (a, b) { return new Date(b.ts) - new Date(a.ts); });
+  renderHistory();
+  if (!added) toast('没有更多历史了', 'warn');
+};
+window.historySearchDone = function (rid, query, entries, total) {
+  if (!rid || rid !== APP.searchRid) return;
+  if (APP.histQuery.trim() !== String(query || '')) return;
+  APP.searchEntries = entries || [];
+  APP.searchTotal = total || 0;
+  APP.searchPending = false;
+  renderHistory();
+};
 
 /* ---------- 词典 ---------- */
 function hotwordCount(w) {
@@ -1309,6 +1388,12 @@ document.addEventListener('click', function (e) {
     }
     return;
   }
+  if (act === 'load-more-history') {
+    var more = $('#hist-more');
+    if (more) { more.disabled = true; more.textContent = '加载中…'; }
+    post({ action: 'loadMoreHistory', offset: HISTORY.length, limit: 500 });
+    return;
+  }
   if (act === 'copy-hist') {
     var row = btn.closest('.hist-row');
     var txt = row && $('.hist-text', row);
@@ -1413,7 +1498,7 @@ document.addEventListener('click', function (e) {
     post({ action: 'delAppReplaceIdx', app: btn.getAttribute('data-app') || '', index: num(btn.getAttribute('data-i'), -1) }); return;
   }
 });
-$('#hist-search').addEventListener('input', function (e) { APP.histQuery = e.target.value || ''; renderHistory(); });
+$('#hist-search').addEventListener('input', function (e) { onHistSearch(e.target.value || ''); });
 $('#dict-filter').addEventListener('input', function (e) { APP.dictQuery = e.target.value || ''; filterDictRows(); });
 $('#s-asr-adapter').addEventListener('change', function () { updateAsrHint(); renderStatus(); });
 document.addEventListener('change', function (e) {

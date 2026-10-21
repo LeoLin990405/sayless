@@ -1,4 +1,4 @@
-// SaylessBar v4.8 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v4.9 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -328,7 +328,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.8.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.9.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -687,21 +687,7 @@ final class HubWindow: NSObject {
         if let f = first { stats["first"] = ISO8601DateFormatter().string(from: f) }
         if let l = last { stats["last"] = ISO8601DateFormatter().string(from: l) }
 
-        let hist: [[String: Any]] = sorted.prefix(1000).map { p in
-            let o = p.obj
-            var e: [String: Any] = [
-                "ts": p.ts,
-                "day": p.day,
-                "mode": (o["mode"] as? String) ?? "-",
-                "out": (o["out"] as? String) ?? "",
-                "inserted": (o["inserted"] as? Bool) ?? false
-            ]
-            if let rawText = o["raw"] as? String, !rawText.isEmpty { e["raw"] = String(rawText.prefix(500)) }
-            if let app = o["app"] as? String, !app.isEmpty { e["app"] = app }
-            if let rec = o["rec"] as? String, !rec.isEmpty { e["rec"] = (rec as NSString).lastPathComponent }
-            if let timings = o["timings"] as? [String: Any] { e["timings"] = timings }
-            return e
-        }
+        let hist: [[String: Any]] = sorted.prefix(1000).map { historyEntryPayload($0.obj) }
 
         let providerMap = (cfg["providers"] as? [String: Any]) ?? [:]
         var providerKeys: [String: Bool] = [:]
@@ -752,6 +738,56 @@ final class HubWindow: NSObject {
             "providerKeys": providerKeys,
             "env": env
         ]
+    }
+
+    private func historyEntryPayload(_ o: [String: Any]) -> [String: Any] {
+        let ts = (o["ts"] as? String) ?? ""
+        let date = parseISODate(ts)
+        var e: [String: Any] = [
+            "ts": ts,
+            "day": date.map(localDayString) ?? String(ts.prefix(10)),
+            "mode": (o["mode"] as? String) ?? "-",
+            "out": (o["out"] as? String) ?? "",
+            "inserted": (o["inserted"] as? Bool) ?? false
+        ]
+        if let rawText = o["raw"] as? String, !rawText.isEmpty { e["raw"] = String(rawText.prefix(500)) }
+        if let app = o["app"] as? String, !app.isEmpty { e["app"] = app }
+        if let rec = o["rec"] as? String, !rec.isEmpty { e["rec"] = (rec as NSString).lastPathComponent }
+        if let timings = o["timings"] as? [String: Any] { e["timings"] = timings }
+        return e
+    }
+
+    private func sortedHistoryObjects() -> [[String: Any]] {
+        readHistoryObjects().sorted {
+            let a = parseISODate(($0["ts"] as? String) ?? "") ?? .distantPast
+            let b = parseISODate(($1["ts"] as? String) ?? "") ?? .distantPast
+            return a > b
+        }
+    }
+
+    private func historyPage(offset: Int, limit: Int) -> (entries: [[String: Any]], total: Int) {
+        let all = sortedHistoryObjects()
+        let total = all.count
+        let start = max(0, min(offset, total))
+        let end = max(start, min(start + max(0, limit), total))
+        return (all[start..<end].map(historyEntryPayload), total)
+    }
+
+    private func historySearch(_ query: String, limit: Int) -> (entries: [[String: Any]], total: Int) {
+        let q = query.lowercased()
+        guard !q.isEmpty else { return ([], 0) }
+        let all = sortedHistoryObjects()
+        let matches = all.filter { o in
+            let fields = [
+                (o["out"] as? String) ?? "",
+                (o["raw"] as? String) ?? "",
+                (o["mode"] as? String) ?? "",
+                (o["app"] as? String) ?? "",
+                (o["ts"] as? String) ?? ""
+            ]
+            return fields.contains { $0.lowercased().contains(q) }
+        }
+        return (matches.prefix(max(0, limit)).map(historyEntryPayload), matches.count)
     }
 
     private func computeStreaks(_ days: Set<String>) -> (streak: Int, longest: Int) {
@@ -1315,6 +1351,20 @@ extension HubWindow: WKScriptMessageHandler {
             } else {
                 reply(false, "历史写入失败（检查 history.jsonl 权限）")
             }
+
+        case "loadMoreHistory":
+            let offset = intValue(j["offset"]) ?? 0
+            let limit = max(1, min(intValue(j["limit"]) ?? 500, 2000))
+            let page = historyPage(offset: offset, limit: limit)
+            web?.evaluateJavaScript("window.appendHistory && window.appendHistory(\(jsonForHTML(page.entries)), \(page.total))")
+            logLine("history load more offset=\(offset) got=\(page.entries.count) total=\(page.total)")
+
+        case "searchHistory":
+            let query = stringValue(j["query"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let limit = max(1, min(intValue(j["limit"]) ?? 200, 1000))
+            let result = historySearch(query, limit: limit)
+            web?.evaluateJavaScript("window.historySearchDone && window.historySearchDone(\(jsStringLiteral(rid)), \(jsStringLiteral(query)), \(jsonForHTML(result.entries)), \(result.total))")
+            logLine("history search q=\(query) matches=\(result.total) shown=\(result.entries.count)")
 
         case "exportDict":
             let r = exportDictionary()

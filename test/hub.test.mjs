@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '4.8.0',
+    version: '4.9.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '4.8.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '4.9.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -189,6 +189,54 @@ test('hub 写操作使用 native 结果回调，不先报成功', () => {
   assert.match(TPL, /data-act="export-dict"/);
   assert.match(TPL, /data-act="import-dict"/);
   assert.match(TPL, /data-act="export-history"/);
+  assert.match(TPL, /id="hist-more"/);
+  assert.match(TPL, /window\.appendHistory/);
+  assert.match(TPL, /window\.historySearchDone/);
+  assert.match(TPL, /action: 'searchHistory'/);
   assert.doesNotMatch(TPL, /toast\('已添加替换'\)/);
   assert.doesNotMatch(TPL, /toast\('已删除记录'\)/);
+});
+
+test('hub 历史追加与全量搜索结果可渲染', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-history-'));
+  try {
+    const data = demoData();
+    data.stats.entries = 1500;
+    const safe = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const extra = `<script>
+      APP.historyTotal = 1500;
+      window.appendHistory([{ts:'2026-10-18T10:00:00.000Z',mode:'dictate',out:'APPENDED-OLD',raw:'raw',app:'',rec:'',inserted:false}], 1500);
+      var appended = document.getElementById('hist-list').textContent.indexOf('APPENDED-OLD') >= 0;
+      var more = document.getElementById('hist-more').textContent;
+      APP.histQuery = 'NEEDLE';
+      APP.searchRid = 'r-test';
+      APP.searchPending = true;
+      window.historySearchDone('r-test', 'NEEDLE', [
+        {ts:'2026-10-17T10:00:00.000Z',mode:'ask',out:'SEARCH-HIT',raw:'needle raw',app:'',rec:'',inserted:false}
+      ], 42);
+      var searched = document.getElementById('hist-list').textContent.indexOf('SEARCH-HIT') >= 0;
+      var count = document.getElementById('hist-count').textContent;
+      var marker = document.createElement('div');
+      marker.id = 'test-marker';
+      marker.textContent = JSON.stringify({ appended: appended, more: more, searched: searched, count: count });
+      document.body.appendChild(marker);
+    </script>`;
+    const htmlPath = path.join(dir, 'hub.html');
+    fs.writeFileSync(htmlPath, TPL.replace('__DATAJSON__', safe).replace('</body>', extra + '</body>'));
+    const r = spawnSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
+      '--dump-dom', `file://${htmlPath}`
+    ], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    const dom = r.stdout || '';
+    assert.doesNotMatch(dom, /id="js-error"/);
+    assert.match(dom, /id="test-marker"/);
+    assert.match(dom, /appended":true/);
+    assert.match(dom, /剩余 1497 条/);
+    assert.match(dom, /searched":true/);
+    assert.match(dom, /1 \/ 42 条匹配/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
