@@ -20,14 +20,14 @@ cp hub.html SaylessBar.app/Contents/Resources/
 # App 自带 CLI，避免用户必须先手动 ln -sf 到 /opt/homebrew/bin
 cp ../sayless.mjs ../asr-ark-ws.mjs SaylessBar.app/Contents/Resources/
 
-# 签名：优先用持久身份（Sayless Local Dev 证书，TCC 授权跨重装保留），否则退回 ad-hoc（每次重装授权失效）
+# 签名：优先用持久身份（Sayless Local Dev 证书；可减少 TCC 重置，但 macOS 仍可能在新二进制后要求重新授权）
 IDENTITY=""
 if [ "${SAYLESS_SIGN:-auto}" != "adhoc" ]; then
   IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk '/Sayless Local Dev/{print $2; exit}')
 fi
 if [ -n "${IDENTITY}" ]; then
   codesign --force -s "$IDENTITY" SaylessBar.app
-  echo "signed with persistent identity: Sayless Local Dev"
+  echo "signed with persistent identity: Sayless Local Dev (若更新后热键/粘贴失效，请在系统设置重新勾选辅助功能)"
 else
   codesign --force -s - SaylessBar.app
   echo "signed ad-hoc (no persistent identity found — TCC grants will reset on reinstall)"
@@ -47,5 +47,6 @@ rm -rf "$DEST"
 cp -R SaylessBar.app "$DEST"
 echo "built & installed: $DEST"
 if [ "$DEST" = "/Applications/SaylessBar.app" ]; then
+  echo "提示：更新后若热键/粘贴失效，请到 系统设置 → 隐私与安全性 → 辅助功能 重新勾选 SaylessBar（麦克风同理）。"
   open /Applications/SaylessBar.app
 fi
