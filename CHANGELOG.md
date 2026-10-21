@@ -1,5 +1,28 @@
 # Changelog
 
+## v4.6.0 (2026-10-21)
+
+以「首次使用 / 可观测性 / 日常检查」为主的下一轮全栈迭代。
+
+### Hub / App
+
+- **首次使用引导**：config 缺失或 provider 为空时，hub 顶部显示初始化横幅；一键调用内置 CLI `sayless init`（不联网），成功自动刷新，失败把命令输出展示在页面里。
+- **Provider 状态**：设置页列出每个供应商「已配置 / 未配置」，点击即可选中写入 key；Key 写入成功后状态即时更新。
+- **历史详情**：每条历史可展开 `ⓘ`，查看 ASR 原文、ASR/LLM/总耗时、应用与录音文件；数据来自新增的 `timings` 字段。
+- **快捷键冲突**：hub 内联提示重复的 key+modifier，保存前拦截；快捷键录制期间临时注销 Carbon 热键，避免录制已被占用的组合时触发原动作。
+- **空配置/回调**：`configExists`、`dictExists` 注入；初始化、设置保存、Key 写入均有成功/失败回调，不再只做乐观提示。
+- App 页头版本、Info.plist、CLI、package 统一 4.6.0。
+
+### Backend
+
+- 本版无破坏性 CLI 变更；沿用 v4.5.0 的解析/权限/重试/历史语义。
+- hub 数据补充 `timings`、`configExists`、`dictExists`。
+
+### Tests / Docs
+
+- 68 个 Node 集成测试（新增 hub onboarding / provider 状态 / 历史详情；仍含 mock provider、mock ASR、假 ffmpeg、Chrome headless）。
+- 更新 README、CHANGELOG、hub 截图。
+
 ## v4.5.0 (2026-10-20)
 
 一次前后端全栈迭代，重点是把“设置不生效、搜索没反应、录音没结束就转写”这类长期问题修掉，并补齐可测试性。
@@ -36,5 +59,5 @@
 - 登录项改为按当前状态 register/unregister。
 - 胶囊成功态恢复 2.2s 文本预览（此前成功立即消失）。
 - 新增 headless 调试口子：`SAYLESS_DUMP_HUB` / `SAYLESS_DUMP_HUB_TAB`。
-- 新增 67 个 Node 集成测试（mock 供应商/ASR + 假 ffmpeg）与 hub Chrome headless 测试；`npm test` / `npm run check`。
+- 新增 68 个 Node 集成测试（mock 供应商/ASR + 假 ffmpeg）与 hub Chrome headless 测试；`npm test` / `npm run check`。
 - 新增 `package.json`、CI、`tools/gen-hub-demo.mjs`（Chrome 截图 + DOM 检查）。

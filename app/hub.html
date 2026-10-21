@@ -57,6 +57,12 @@ h2.sec{font-size:13px;color:var(--sub);font-weight:700;letter-spacing:.7px;margi
 h2.sec .note{font-size:11px;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none;margin-left:8px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .grid2>*{min-width:0}
+.setup-banner{display:flex;gap:14px;align-items:center;background:#2a2418;border:1px solid #5b4a2a;border-radius:14px;padding:14px 16px;margin-bottom:18px;max-width:960px}
+.setup-banner[hidden]{display:none}
+.setup-banner .sb-body{flex:1;min-width:0}
+.setup-banner .sb-body b{font-size:13px}
+.setup-banner .sub{font-size:11.5px;margin-top:3px;color:#d6c49c}
+.setup-banner .warn{margin-top:5px;white-space:pre-wrap}
 .card{background:var(--card);border:1px solid #353333;border-radius:var(--radius);padding:18px}
 .card.tight{padding:14px}
 .card h3{font-size:13.5px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px}
@@ -170,6 +176,13 @@ input[type=checkbox]{width:15px;height:15px;accent-color:#2563eb}
 .statusbar .s{font-size:10.5px;color:#cfcbc5;background:#242222;border:1px solid #383535;border-radius:7px;padding:4px 7px}
 .statusbar .s.ok{color:#b8f3d8;border-color:#2f4b35}
 .statusbar .s.bad{color:#f4b6b6;border-color:#4a2929}
+button.s{cursor:pointer}
+button.s:hover{background:#343131}
+.hist-detail{grid-column:1/-1;border-top:1px solid #3a3737;margin-top:2px;padding-top:9px;display:grid;gap:7px}
+.hist-detail[hidden]{display:none}
+.hd-label{font-size:10px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-bottom:3px}
+.hd-pre{background:#1b1a1a;border:1px solid #343232;border-radius:8px;padding:8px 10px;font-size:11.5px;line-height:1.55;color:#d8d4cf;white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;margin:0}
+.hd-meta{font-size:10.5px;color:var(--muted);line-height:1.6}
 .cross-row{display:flex;gap:7px;align-items:center;margin-bottom:7px}
 .cross-row select{max-width:150px;flex-shrink:0}
 .cross-row input{flex:1;min-width:100px;background:#242222;border:1px solid #3d3a3a;border-radius:8px;padding:8px 10px;font-size:12.5px;color:var(--txt);outline:none}
@@ -259,6 +272,15 @@ kbd{display:inline-block;background:#3a3838;border:1px solid #4b4747;border-bott
 </div>
 
 <div class="main">
+  <div class="setup-banner" id="setup-banner" hidden>
+    <div class="sb-body">
+      <b>首次使用</b>
+      <div class="sub" id="setup-text"></div>
+      <div class="warn" id="setup-error" hidden></div>
+    </div>
+    <button class="btn mini" id="setup-init" data-act="init-config">一键初始化</button>
+  </div>
+
   <!-- 首页 -->
   <div class="tab" id="t0">
     <div class="hero">
@@ -453,6 +475,7 @@ kbd{display:inline-block;background:#3a3838;border:1px solid #4b4747;border-bott
       <div class="section">
         <h3>快捷键 <span class="hintdot">点击键位后按下新组合；保存后重启 SaylessBar 生效</span></h3>
         <div id="hotkey-rows"></div>
+        <div class="warn" id="hotkey-conflict" style="display:none"></div>
         <div class="warn" id="hotkey-warn" style="display:none"></div>
       </div>
 
@@ -462,6 +485,7 @@ kbd{display:inline-block;background:#3a3838;border:1px solid #4b4747;border-bott
         <div class="frow"><label>API Key</label><input type="password" id="s-key-value" placeholder="粘贴 key；留空 = 不修改" autocomplete="off"></div>
         <div class="frow"><label></label><button class="btn mini" data-act="save-key">写入 Key</button><span class="unit" id="key-status"></span></div>
         <div class="hint">各家套餐专属域名见 README「多模型」；<code>sayless doctor</code> 可实测每条通道。</div>
+        <div class="statusbar" id="provider-status"></div>
       </div>
 
       <div class="section">
@@ -668,6 +692,49 @@ function copyText(text) {
 }
 
 /* ---------- 首页 ---------- */
+function timingText(t) {
+  if (!t) return '耗时 —';
+  var asr = Number(t.asr || 0), llm = Number(t.llm || 0), total = Number(t.total || 0);
+  return 'ASR ' + asr + 'ms · LLM ' + llm + 'ms · 总计 ' + total + 'ms';
+}
+function renderSetupBanner() {
+  var el = $('#setup-banner');
+  if (!el) return;
+  var missing = ENV.configExists === false;
+  var noProviders = !PROVIDERS.length;
+  if (!missing && !noProviders) { el.hidden = true; return; }
+  el.hidden = false;
+  var text = missing
+    ? '还没有 ~/.sayless/config.json。初始化会生成本地配置与空词库（不联网）。'
+    : '配置里还没有供应商。初始化会补全内置 provider 列表。';
+  $('#setup-text').textContent = text;
+  var btn = $('#setup-init');
+  if (btn && !btn.disabled) btn.textContent = missing ? '一键初始化' : '补全默认配置';
+}
+function renderProviderStatus() {
+  var el = $('#provider-status');
+  if (!el) return;
+  if (!PROVIDERS.length) {
+    el.innerHTML = '<span class="s bad">无供应商（先初始化配置）</span>';
+    return;
+  }
+  el.innerHTML = PROVIDERS.map(function (p) {
+    var ok = !!KEYSTATUS[p];
+    return '<button class="s ' + (ok ? 'ok' : 'bad') + '" data-act="pick-provider" data-provider="' + attr(p) + '">'
+      + esc(p) + ' · ' + (ok ? '已配置' : '未配置') + '</button>';
+  }).join('');
+}
+function hotkeyConflicts() {
+  var seen = {}, out = [];
+  ['dictate', 'translate', 'ask'].forEach(function (slot) {
+    var h = HOTKEYS[slot];
+    if (!h || h.key == null) return;
+    var sig = h.key + ':' + h.modifier;
+    if (seen[sig]) out.push(seen[sig] + ' / ' + slot + ' 都是 ' + hotkeyText(h));
+    else seen[sig] = slot;
+  });
+  return out;
+}
 function renderHomeShortcuts() {
   var el = $('#home-shortcuts');
   if (!el) return;
@@ -748,12 +815,17 @@ function renderHistory() {
   $('#hist-list').innerHTML = list.map(function (e, i) {
     var m = modeLabel(e.mode);
     var rec = e.rec ? String(e.rec) : '';
-    var actions = '<button class="iconbtn" data-act="copy-hist" title="复制">⧉</button>';
+    var actions = '<button class="iconbtn" data-act="toggle-detail" title="详情">ⓘ</button>' +
+      '<button class="iconbtn" data-act="copy-hist" title="复制">⧉</button>';
     if (rec) {
       actions += '<button class="iconbtn" data-act="play" data-file="' + attr(rec) + '" title="回放">▶</button>';
       actions += '<button class="iconbtn" data-act="retranscribe" data-file="' + attr(rec) + '" title="重转写">↻</button>';
     }
     actions += '<button class="iconbtn danger" data-act="del-hist" data-ts="' + attr(e.ts) + '" title="删除">✕</button>';
+    var detail = '<div class="hist-detail" hidden>' +
+      '<div><div class="hd-label">ASR 原文</div><pre class="hd-pre">' + esc(e.raw || '（无原文记录）') + '</pre></div>' +
+      '<div class="hd-meta">' + timingText(e.timings) + (e.app ? ' · 应用 ' + esc(e.app) : '') + (rec ? ' · 录音 ' + esc(rec) : '') + '</div>' +
+      '</div>';
     return '<div class="hist-row" data-ts="' + attr(e.ts) + '">' +
       '<div class="hist-time">' + esc(timeLabel(e.ts)) + '</div>' +
       '<div><span class="mode ' + m.cls + '">' + esc(m.text) + '</span></div>' +
@@ -761,6 +833,7 @@ function renderHistory() {
       (e.app ? '<div class="hist-app">应用 · ' + esc(e.app) + '</div>' : '') +
       '</div>' +
       '<div class="hist-actions">' + actions + '</div>' +
+      detail +
       '</div>';
   }).join('');
 }
@@ -860,6 +933,17 @@ function renderHotkeys() {
     var h = HOTKEYS[slot] || {};
     return '<div class="k">' + names[slot] + '</div><kbd>' + esc(MOD_NAMES[h.modifier] || '') + '</kbd><kbd>' + esc(h.label || keyLabel(h.key)) + '</kbd>';
   }).join('');
+  var conflictEl = $('#hotkey-conflict');
+  if (conflictEl) {
+    var conflicts = hotkeyConflicts();
+    if (conflicts.length) {
+      conflictEl.style.display = 'block';
+      conflictEl.textContent = '快捷键冲突：' + conflicts.join('；') + '。请改开后再保存。';
+    } else {
+      conflictEl.style.display = 'none';
+      conflictEl.textContent = '';
+    }
+  }
   renderHomeShortcuts();
 }
 function renderSettings() {
@@ -904,6 +988,8 @@ function renderSettings() {
   updateAsrHint();
   renderStatus();
   renderEnv();
+  renderProviderStatus();
+  renderSetupBanner();
 }
 function updateAsrHint() {
   var hints = {
@@ -1000,16 +1086,9 @@ function collectSettings() {
   };
 }
 function saveSettings() {
-  var seen = {}, conflict = null;
-  ['dictate', 'translate', 'ask'].forEach(function (slot) {
-    var h = HOTKEYS[slot];
-    if (!h || h.key == null) return;
-    var sig = h.key + ':' + h.modifier;
-    if (seen[sig]) conflict = seen[sig] + ' / ' + slot;
-    else seen[sig] = slot;
-  });
-  if (conflict) {
-    toast('快捷键冲突：' + conflict + ' 使用了同一组合，请先改开', 'warn');
+  var conflicts = hotkeyConflicts();
+  if (conflicts.length) {
+    toast('快捷键冲突：' + conflicts.join('；'), 'warn');
     return;
   }
   var cfg = collectSettings();
@@ -1045,6 +1124,14 @@ window.doctorDone = function (text) {
   var btn = $('#doctor-btn');
   if (btn) btn.disabled = false;
 };
+window.initConfigDone = function (ok, text) {
+  var btn = $('#setup-init');
+  if (btn) { btn.disabled = false; btn.textContent = ok ? '已初始化' : '一键初始化'; }
+  var err = $('#setup-error');
+  if (!ok && err) { err.hidden = false; err.textContent = String(text || '初始化失败'); }
+  if (ok) toast('配置已生成，正在刷新…');
+  else toast('初始化失败', 'warn');
+};
 window.settingsSaved = function () {
   var el = $('#save-status');
   if (el) {
@@ -1062,6 +1149,7 @@ window.keySaved = function () {
     el.textContent = '已写入 ✓';
     setTimeout(function () { el.textContent = ''; }, 3000);
   }
+  renderProviderStatus();
   toast('API Key 已写入本地配置');
 };
 window.hubActionDone = function (msg) {
@@ -1133,6 +1221,31 @@ document.addEventListener('click', function (e) {
     renderCross(models2); return;
   }
   if (act === 'capture-key') return startCapture(btn.getAttribute('data-slot'));
+  if (act === 'toggle-detail') {
+    var detail = $('.hist-detail', btn.closest('.hist-row'));
+    if (detail) { detail.hidden = !detail.hidden; btn.style.color = detail.hidden ? '' : 'var(--accent)'; }
+    return;
+  }
+  if (act === 'pick-provider') {
+    var pick = btn.getAttribute('data-provider') || '';
+    var selKey = $('#s-key-provider');
+    if (selKey && pick) {
+      selKey.value = pick;
+      selKey.dispatchEvent(new Event('change'));
+      toast('已选择 ' + pick + '，可粘贴 key 后写入');
+    }
+    return;
+  }
+  if (act === 'init-config') {
+    var initBtn = $('#setup-init');
+    var err = $('#setup-error');
+    if (err) { err.hidden = true; err.textContent = ''; }
+    if (initBtn) { initBtn.disabled = true; initBtn.textContent = '初始化中…'; }
+    if (!post({ action: 'initConfig' })) {
+      if (initBtn) { initBtn.disabled = false; initBtn.textContent = '一键初始化'; }
+    }
+    return;
+  }
   if (act === 'copy-hist') {
     var row = btn.closest('.hist-row');
     var txt = row && $('.hist-text', row);
@@ -1287,6 +1400,7 @@ renderHome();
 renderHistory();
 renderDict();
 renderSettings();
+renderSetupBanner();
 go(APP.tab);
 </script>
 </body>

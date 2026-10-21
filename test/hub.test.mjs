@@ -12,7 +12,7 @@ const CHROME = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Conten
 
 function demoData() {
   return {
-    version: '4.5.0',
+    version: '4.6.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -22,8 +22,8 @@ function demoData() {
     },
     days: ['2026-10-19', '2026-10-20'],
     history: [
-      { ts: '2026-10-20T12:00:00.000Z', mode: 'dictate', out: '第一条 <script>alert(1)</script>', app: 'Mail', rec: 'a.wav', inserted: true },
-      { ts: '2026-10-19T11:00:00.000Z', mode: 'translate:en', out: 'Second entry', app: 'Slack', rec: '', inserted: false }
+      { ts: '2026-10-20T12:00:00.000Z', mode: 'dictate', out: '第一条 <script>alert(1)</script>', raw: '第一条原始 ASR', app: 'Mail', rec: 'a.wav', inserted: true, timings: { asr: 12, llm: 34, total: 50 } },
+      { ts: '2026-10-19T11:00:00.000Z', mode: 'translate:en', out: 'Second entry', raw: '第二条原始', app: 'Slack', rec: '', inserted: false, timings: { asr: 8, llm: 20, total: 30 } }
     ],
     dict: {
       replacements: [{ from: '摆链', to: 'Bailian' }],
@@ -46,7 +46,7 @@ function demoData() {
     },
     providers: ['ark-plan', 'deepseek'],
     providerKeys: { 'ark-plan': true, deepseek: false },
-    env: { node: 'v22.0.0', whisperBinExists: true, whisperModelExists: true, ffmpegExists: true, configMode: '600', plugins: [] }
+    env: { node: 'v22.0.0', whisperBinExists: true, whisperModelExists: true, ffmpegExists: true, configMode: '600', configExists: true, dictExists: true, plugins: [] }
   };
 }
 
@@ -97,10 +97,10 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '4.5.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '4.6.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
-      cfg: {}, providers: [], providerKeys: {}, env: {}
+      cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
     };
     const safe = JSON.stringify(empty).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
     const htmlPath = path.join(dir, 'hub.html');
@@ -115,6 +115,9 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
     assert.doesNotMatch(dom, /id="js-error"/);
     assert.match(dom, /说话，不要打字/);
     assert.match(dom, /class="tab on"/);
+    assert.match(dom, /id="setup-banner"/);
+    assert.doesNotMatch(dom, /id="setup-banner" hidden/);
+    assert.match(dom, /data-act="init-config"/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -124,4 +127,36 @@ test('hub 的模型留空提交空字符串（配合 CLI 的 provider 默认模�
   assert.match(TPL, /var modelValue = function \(id\)/);
   assert.doesNotMatch(TPL, /modelOrNull|model: .*null/);
   assert.match(TPL, /model: modelValue\('#s-llm-model'\)/);
+});
+
+
+test('hub 设置页展示 provider key 状态，历史页展示详情入口', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-features-'));
+  try {
+    const render = (tab) => {
+      const data = demoData();
+      data.initialTab = tab;
+      const safe = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+      const p = path.join(dir, `hub-${tab}.html`);
+      fs.writeFileSync(p, TPL.replace('__DATAJSON__', safe));
+      const r = spawnSync(CHROME, [
+        '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+        `--user-data-dir=${path.join(dir, `profile-${tab}`)}`, '--virtual-time-budget=1500',
+        '--dump-dom', `file://${p}`
+      ], { encoding: 'utf8', timeout: 30000 });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout || '';
+    };
+    const settings = render(3);
+    assert.doesNotMatch(settings, /id="js-error"/);
+    assert.match(settings, /provider-status/);
+    assert.match(settings, /已配置/);
+    const history = render(1);
+    assert.doesNotMatch(history, /id="js-error"/);
+    assert.match(history, /data-act="toggle-detail"/);
+    assert.match(history, /ASR 原文/);
+    assert.match(history, /第一条原始 ASR/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

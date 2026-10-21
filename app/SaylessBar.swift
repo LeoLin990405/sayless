@@ -1,4 +1,4 @@
-// SaylessBar v4.5 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v4.6 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -326,7 +326,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.5.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "4.6.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -561,6 +561,7 @@ final class HubWindow: NSObject {
     private var window: NSWindow?
     private var web: WKWebView?
     private var currentTab = 0
+    private var initializingConfig = false
 
     func show(tab: Int = 0) {
         currentTab = tab
@@ -696,6 +697,7 @@ final class HubWindow: NSObject {
             if let rawText = o["raw"] as? String, !rawText.isEmpty { e["raw"] = String(rawText.prefix(500)) }
             if let app = o["app"] as? String, !app.isEmpty { e["app"] = app }
             if let rec = o["rec"] as? String, !rec.isEmpty { e["rec"] = (rec as NSString).lastPathComponent }
+            if let timings = o["timings"] as? [String: Any] { e["timings"] = timings }
             return e
         }
 
@@ -730,6 +732,8 @@ final class HubWindow: NSObject {
             "whisperModelExists": whisperModelExists,
             "ffmpegExists": whichTool("ffmpeg") != nil,
             "configMode": configFileMode() ?? "—",
+            "configExists": FileManager.default.fileExists(atPath: saylessConfigFile),
+            "dictExists": FileManager.default.fileExists(atPath: saylessDictFile),
             "plugins": pluginNames
         ]
 
@@ -841,6 +845,36 @@ final class HubWindow: NSObject {
         }
         if removed > 0 { _ = writeHistoryLines(kept) }
         return removed
+    }
+
+    /// 首次使用：在 App 内运行内置 CLI 的 init，生成 config.json / dictionary.json
+    private func runInitConfig() {
+        guard !initializingConfig else { return }
+        guard let cli = saylessCLIPath() else {
+            web?.evaluateJavaScript("window.initConfigDone && window.initConfigDone(false, '找不到 sayless CLI')")
+            return
+        }
+        guard let node = whichTool("node") else {
+            web?.evaluateJavaScript("window.initConfigDone && window.initConfigDone(false, '找不到 Node.js，请先安装 Node 18+')")
+            return
+        }
+        initializingConfig = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let r = runProcess(node, [cli, "init"], env: ["SAYLESS_DIR": saylessDataDir])
+            let text = [r.stdout, r.stderr].filter { !$0.isEmpty }.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.initializingConfig = false
+                let ok = r.code == 0
+                let msg = text.isEmpty ? (ok ? "配置已生成" : "初始化失败") : text
+                self.web?.evaluateJavaScript("window.initConfigDone && window.initConfigDone(\(ok ? "true" : "false"), \(jsStringLiteral(msg)))")
+                if ok {
+                    // 让页面先显示成功提示，再重载为初始化后的配置
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { self.refresh() }
+                }
+            }
+        }
     }
 
     private func runDoctor() {
@@ -1115,6 +1149,9 @@ extension HubWindow: WKScriptMessageHandler {
 
         case "runDoctor":
             runDoctor()
+
+        case "initConfig":
+            runInitConfig()
 
         case "openDataDir":
             try? FileManager.default.createDirectory(atPath: saylessDataDir, withIntermediateDirectories: true)

@@ -2,7 +2,7 @@
 
 > ⚠️ **声明**：本项目是对 Typeless 应用进行**逆向工程的学习项目**，交互形态按 1:1 复刻仅作学习研究之用，**切勿用于任何商业用途**（详见 [LICENSE](LICENSE)）。与 Typeless 原开发者无任何隶属或授权关系。
 
-**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个 Typeless 风格的菜单栏 App。当前版本 **v4.5.0**（见 [CHANGELOG](CHANGELOG.md)）。
+**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个 Typeless 风格的菜单栏 App。当前版本 **v4.6.0**（见 [CHANGELOG](CHANGELOG.md)）。
 
 干净的自研实现（不含任何第三方听写应用代码），模型走**你自己的套餐**，词语库和听写历史全部本地。
 
@@ -106,7 +106,7 @@ SAYLESS_SIGN=adhoc BUILD_ONLY=1 ./build.sh   # 跳过钥匙串里的持久证书
 
 - **录音胶囊**：屏幕底部浮出黑胶囊（✕ / 实时波形 / ✓），Thinking 态与结果预览自隐，Esc 取消，90s 自动收尾
 - **hub 四页**：首页（口述字数/条数/活跃天/连续天 + 20 周热力图）｜历史记录（实时搜索、复制、回放、重转写、删除、清空）｜词典（替换/热词/词频/风格规则/分应用层增删改）｜设置（见下）
-- **设置页**：ASR 引擎/路径/语种、润色供应商+模型+重试、翻译、交叉阵容与仲裁、Ask（引擎/代理/结果数）、工作流、提示音/PTT/结果投放/剪贴板恢复、**快捷键录制**、**供应商 API Key 写入**（密码框不回显，key 只落本地 config.json 0600）、**一键体检**——保存深合并写回 config.json，数字/空值也能正确清除
+- **设置页**：ASR 引擎/路径/语种、润色供应商+模型+重试、翻译、交叉阵容与仲裁、Ask（引擎/代理/结果数）、工作流、提示音/PTT/结果投放/剪贴板恢复、**快捷键录制（冲突内联提示）**、**供应商 API Key 写入 + 各 provider 已配置状态**（密码框不回显，key 只落本地 config.json 0600）、**一键体检**——保存深合并写回 config.json，数字/空值也能正确清除
 - **键位**：设置页点击键位后按下新组合，保存到 config.json 的 `"hotkeys"`（slot: dictate/translate/ask，key 为 macOS 键码，modifier: option/command/control/shift/none），重启 App 生效
 - **菜单**：打开主面板 / 历史 / 设置 / 紧急停止录音 / 请求辅助功能授权 / 登录启动 / 词语库 / 数据目录 / 日志
 
@@ -267,7 +267,7 @@ flowchart LR
 ## 开发与测试
 
 ```sh
-npm test                     # 67 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
+npm test                     # 68 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
 npm run check                # node --check + 完整测试
 BUILD_ONLY=1 ./app/build.sh  # 只编译打包 App（不装 /Applications、不启动）
 node tools/gen-hub-demo.mjs /tmp/hub-demo  # Chrome headless 渲染 hub 四页截图 + DOM js-error 检查
