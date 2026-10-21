@@ -122,7 +122,7 @@ SAYLESS_SIGN=adhoc BUILD_ONLY=1 ./build.sh   # 跳过钥匙串里的持久证书
 - `app/build.sh` 自动检测钥匙串里的 `Sayless Local Dev` 证书并以其签名——**TCC 授权（辅助功能/麦克风）跨重装永久保留**；找不到证书则回退 ad-hoc（每次重装需重开辅助功能开关）
 - 构建产物自带 CLI（Resources/sayless.mjs），App 内转写、体检直接走 `node` 执行内置脚本；`SAYLESS_CLI` 可覆盖路径
 - 制作持久证书（一次性，全自动）：`openssl req -x509 -newkey rsa:2048 -nodes -addext "extendedKeyUsage=codeSigning" -subj "/CN=Sayless Local Dev"` 生成 → `security import` → `security add-trusted-cert -p codeSign`（会弹一次 Touch ID/密码确认）
-- 调试口子：`SAYLESS_SHOW_HUB=<0-3>` 启动即开对应页面（首页/历史/词典/设置）
+- 调试口子：`SAYLESS_SHOW_HUB=<0-3>` 启动即开对应页面（首页/历史/词典/设置）；`SAYLESS_DUMP_HUB=/tmp/hub.html` 直接写出 hub 数据页；`SAYLESS_DUMP_PANEL=/tmp/panel.png` 把自定义菜单栏面板渲染成 PNG
 
 ## CLI 参考
 
@@ -284,6 +284,9 @@ node tools/gen-hub-demo.mjs /tmp/hub-demo  # Chrome headless 渲染 hub 四页�
 
 ```sh
 CFFIXED_USER_HOME=/tmp/fakehome SAYLESS_DUMP_HUB=/tmp/hub.html SAYLESS_DUMP_HUB_TAB=3 \
+  ./app/SaylessBar.app/Contents/MacOS/SaylessBar
+
+CFFIXED_USER_HOME=/tmp/fakehome SAYLESS_DUMP_PANEL=/tmp/menubar.png \
   ./app/SaylessBar.app/Contents/MacOS/SaylessBar
 ```
 

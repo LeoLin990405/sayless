@@ -1572,6 +1572,13 @@ struct MenuBarView: View {
                     Rectangle().fill(PaperPalette.line.opacity(0.55)).frame(height: 1)
                 }
             }
+            Button(action: onHistory) {
+                HStack {
+                    Text("查看全部历史").font(.system(size: 8.5, weight: .medium))
+                    Spacer()
+                    Image(systemName: "arrow.right").font(.system(size: 7, weight: .medium))
+                }.foregroundColor(PaperPalette.muted).padding(.top, 8)
+            }.buttonStyle(.plain)
 
             Spacer(minLength: 10)
 
@@ -1599,7 +1606,7 @@ struct MenuBarView: View {
             }
         }
         .padding(17)
-        .frame(width: 344, height: 432, alignment: .topLeading)
+        .frame(width: 344, height: 400, alignment: .topLeading)
         .background(PaperPalette.paper)
     }
 
@@ -1647,11 +1654,25 @@ final class MenuBarPopover: NSObject {
         guard let app, let button else { return }
         let view = makeView(app)
         let host = NSHostingController(rootView: view)
-        host.view.frame = NSRect(x: 0, y: 0, width: 344, height: 432)
+        host.view.frame = NSRect(x: 0, y: 0, width: 344, height: 400)
         popover.contentViewController = host
-        popover.contentSize = NSSize(width: 344, height: 432)
+        popover.contentSize = NSSize(width: 344, height: 400)
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    static func renderPreview(app: AppDelegate, to path: String) -> Bool {
+        let popover = MenuBarPopover(app: app, button: NSStatusBarButton(frame: NSRect(x: 0, y: 0, width: 24, height: 24)))
+        let view = popover.makeView(app)
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(x: 0, y: 0, width: 344, height: 400)
+        host.appearance = NSAppearance(named: .aqua)
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return false }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]) else { return false }
+        do { try data.write(to: URL(fileURLWithPath: path)); return true } catch { return false }
     }
 
     private func makeView(_ app: AppDelegate) -> MenuBarView {
@@ -2483,6 +2504,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
+
+// 调试/验证口子：渲染自定义菜单栏面板为 PNG
+if let panelDump = ProcessInfo.processInfo.environment["SAYLESS_DUMP_PANEL"], !panelDump.isEmpty {
+    let preview = AppDelegate()
+    preview.loadAppConfig()
+    let ok = MenuBarPopover.renderPreview(app: preview, to: panelDump)
+    FileHandle.standardError.write(Data((ok ? "panel written: \(panelDump)\n" : "panel dump failed\n").utf8))
+    exit(ok ? 0 : 1)
+}
 
 // 调试口子：SAYLESS_DUMP_HUB=/tmp/hub.html SAYLESS_DUMP_HUB_TAB=0
 // 只写出注入数据后的 HTML 并退出，不创建菜单栏/窗口，便于 CI 或人工核对。

@@ -17,3 +17,13 @@ jobs:
         run: npm test
       - name: Build app (no install)
         run: BUILD_ONLY=1 ./app/build.sh
+      - name: Render hub + menu panel (headless smoke test)
+        run: |
+          H="$RUNNER_TEMP/sayless-ci-home"
+          mkdir -p "$H"
+          CFFIXED_USER_HOME="$H" SAYLESS_DUMP_HUB="$H/hub.html" SAYLESS_DUMP_HUB_TAB=3 \
+            ./app/SaylessBar.app/Contents/MacOS/SaylessBar
+          test -s "$H/hub.html"
+          CFFIXED_USER_HOME="$H" SAYLESS_DUMP_PANEL="$H/menubar.png" \
+            ./app/SaylessBar.app/Contents/MacOS/SaylessBar
+          test -s "$H/menubar.png"
