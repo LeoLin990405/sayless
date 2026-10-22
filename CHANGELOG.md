@@ -1,5 +1,23 @@
 # Changelog
 
+## v6.1.0 (2026-10-22)
+
+模型接入从「改 config.json」升级为用户可操作。
+
+### 模型 / 供应商
+
+- 设置「模型」组新增**供应商连接**：选择已有 provider，编辑 Base URL、Chat path、默认模型，或新增/删除自定义 provider。
+- 内置常用预设：OpenAI、OpenRouter、Groq、Ollama、LM Studio、SiliconFlow；填入 ID/Base URL/路径后即可保存。
+- 模型名仍是自由文本；听写润色、翻译、联网问答、交叉阵容都可以选择不同的自定义 provider，实现跨厂商混用。
+- 后端本来就走任意 OpenAI Chat Completions 兼容端点；本次把能力开放到 hub，不再要求用户手改 `config.json`。
+- 删除 provider 前会检查是否仍被润色/翻译/问答/仲裁/交叉阵容/云端 ASR 引用。
+- 明确适配边界：**OpenAI 兼容协议 + 内置 ASR 适配器**；原生 Anthropic/Gemini 协议需网关或插件，不是「所有厂商协议原生适配」。
+
+### Tests / Docs
+
+- 75 个 Node 集成测试：新增 hub 供应商预设填充/字段渲染的 Chrome 行为测试。
+- README 增加模型接入范围说明；版本 6.1.0。
+
 ## v6.0.0 (2026-10-21)
 
 **彻底重构 UI，摆脱 Typeless 视觉语言。** 功能与数据格式保持不变。

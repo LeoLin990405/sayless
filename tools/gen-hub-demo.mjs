@@ -89,7 +89,18 @@ const dict = {
 
 const providers = ['ark-plan', 'deepseek', 'zai', 'minimax', 'kimi', 'mimo-plan', 'stepfun-plan', 'dashscope'];
 const cfg = {
-  providers: Object.fromEntries(providers.map(p => [p, { baseUrl: 'https://example.invalid/v1' }])),
+  providers: Object.fromEntries(providers.map(p => [p, {
+    baseUrl: {
+      'ark-plan': 'https://ark.cn-beijing.volces.com/api/plan/v3',
+      deepseek: 'https://api.deepseek.com/v1',
+      zai: 'https://open.bigmodel.cn/api/coding/paas/v4',
+      minimax: 'https://api.minimaxi.com/v1',
+      kimi: 'https://api.kimi.com/coding/v1',
+      'mimo-plan': 'https://token-plan-sgp.xiaomimimo.com/v1',
+      'stepfun-plan': 'https://api.stepfun.com/step_plan/v1',
+      dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    }[p] || 'https://api.example.com/v1'
+  }])),
   asr: {
     adapter: 'whisper', language: 'zh', whisperBin: '/opt/homebrew/bin/whisper-cli',
     whisperModel: '/Users/leo/.sayless/ggml-base.bin', filterHallucinations: true
@@ -129,7 +140,7 @@ const stats = {
 };
 
 const data = {
-  version: '6.0.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
+  version: '6.1.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
   stats, days, history: rawHistory, dict, cfg,
   providers,
   providerKeys: { 'ark-plan': true, deepseek: true, zai: true, minimax: true, 'mimo-plan': true },
@@ -163,13 +174,15 @@ const pages = [
   { name: 'hub-history', tab: 1, width: 1280, height: 900 },
   { name: 'hub-dict', tab: 2, width: 1280, height: 1100 },
   { name: 'hub-settings', tab: 3, width: 1280, height: 820 },
+  { name: 'hub-settings-model', tab: 3, width: 1280, height: 1200, settingsGroup: 'model' },
   { name: 'hub-command', tab: 0, width: 1280, height: 860, openCmd: true },
   { name: 'hub-shortcuts', tab: 0, width: 1280, height: 860, openShortcuts: true }
 ];
 for (const p of pages) {
   const htmlPath = path.join(work, `${p.name}.html`);
   const extra = p.openCmd ? '<script>setTimeout(function(){window.openCommandPalette();},30)</script>'
-    : p.openShortcuts ? '<script>setTimeout(function(){window.openShortcuts();},30)</script>' : '';
+    : p.openShortcuts ? '<script>setTimeout(function(){window.openShortcuts();},30)</script>'
+    : p.settingsGroup ? `<script>setTimeout(function(){showSettingsGroup('${p.settingsGroup}');},30)</script>` : '';
   const html = tpl.replace('__DATAJSON__', safeJSON({ ...data, initialTab: p.tab }))
     .replace('</head>', '<style>*,*::before,*::after{animation:none!important;transition:none!important}</style></head>')
     .replace('</body>', extra + '</body>');

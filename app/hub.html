@@ -713,6 +713,30 @@ pre{background:#f5eee0;border:1px solid var(--line);border-radius:2px;padding:10
         <div class="frow"><label>模型</label><input type="text" id="s-tr-model" placeholder="留空 = 用 providers.<id>.model"></div>
       </div>
 
+      <div class="section" data-group="model">
+        <h3>供应商连接 <span class="hintdot">OpenAI 兼容 / 自定义</span></h3>
+        <div class="frow"><label>快速预设</label><select id="s-provider-preset">
+          <option value="">选择常用端点…</option>
+          <option value="openai|https://api.openai.com/v1|/chat/completions">OpenAI</option>
+          <option value="openrouter|https://openrouter.ai/api/v1|/chat/completions">OpenRouter（多模型网关）</option>
+          <option value="groq|https://api.groq.com/openai/v1|/chat/completions">Groq</option>
+          <option value="ollama|http://127.0.0.1:11434/v1|/chat/completions">Ollama（本地）</option>
+          <option value="lmstudio|http://127.0.0.1:1234/v1|/chat/completions">LM Studio（本地）</option>
+          <option value="siliconflow|https://api.siliconflow.cn/v1|/chat/completions">SiliconFlow</option>
+        </select></div>
+        <div class="frow"><label>选择供应商</label><select id="s-provider-edit"></select></div>
+        <div class="frow"><label>供应商 ID</label><input type="text" id="s-provider-id" placeholder="openrouter / ollama / my-gateway"></div>
+        <div class="frow"><label>Base URL</label><input type="text" id="s-provider-base" placeholder="https://.../v1 或 http://127.0.0.1:11434/v1"></div>
+        <div class="frow"><label>Chat path</label><input type="text" id="s-provider-path" placeholder="/chat/completions"></div>
+        <div class="frow"><label>默认模型</label><input type="text" id="s-provider-model" placeholder="可留空，在线路里填写"></div>
+        <div class="frow"><label></label>
+          <button class="btn mini" data-act="save-provider">保存供应商</button>
+          <button class="btn ghost mini" data-act="new-provider">新增供应商</button>
+          <button class="btn ghost mini" data-act="delete-provider">删除</button>
+        </div>
+        <div class="hint">任何 OpenAI Chat Completions 兼容端点都能接入。保存后到「数据」组写入 API Key；模型名自由填写，可让听写/翻译/问答/交叉阵容混用不同家。原生 Anthropic/Gemini 协议请走 OpenRouter 等网关或插件。</div>
+      </div>
+
       <div class="section" data-group="quality">
         <h3>交叉加强（多模型投票） <span class="hintdot">≥2 家并行出稿，分歧时仲裁</span></h3>
         <div id="cross-models"></div>
@@ -1401,12 +1425,25 @@ function renderHotkeys() {
   }
   renderHomeShortcuts();
 }
+function fillProviderEditor(name) {
+  var p = ((CFG.providers || {})[name]) || {};
+  var id = $('#s-provider-id'), base = $('#s-provider-base'), path = $('#s-provider-path'), model = $('#s-provider-model');
+  if (id) id.value = name || '';
+  if (base) base.value = p.baseUrl || '';
+  if (path) path.value = p.chatPath || '/chat/completions';
+  if (model) model.value = p.model || '';
+}
 function renderSettings() {
   var asr = CFG.asr || {}, llm = CFG.llm || {}, tr = CFG.translate || {}, ask = CFG.ask || {}, cross = CFG.cross || {};
   var setVal = function (id, v) { var el = $(id); if (el && v != null) el.value = v; };
   ['s-llm-provider', 's-tr-provider', 's-ask-provider', 's-arb-provider', 's-key-provider'].forEach(function (id) {
     $('#' + id).innerHTML = providerOptions(id === 's-llm-provider' ? llm.provider : id === 's-tr-provider' ? tr.provider : id === 's-ask-provider' ? ask.provider : id === 's-arb-provider' ? (cross.arbiter || {}).provider : llm.provider);
   });
+  var editSel = $('#s-provider-edit');
+  if (editSel) {
+    editSel.innerHTML = providerOptions(llm.provider || PROVIDERS[0] || '');
+    fillProviderEditor(editSel.value);
+  }
   var wfs = Object.keys(CFG.workflows || {});
   $('#s-workflow').innerHTML = wfs.map(function (w) { return '<option value="' + attr(w) + '">' + esc(w) + '</option>'; }).join('');
   setVal('#s-asr-adapter', asr.adapter || 'whisper');
@@ -1771,6 +1808,34 @@ document.addEventListener('click', function (e) {
   if (act === 'open-shortcuts') { openShortcuts(); return; }
   if (act === 'close-shortcuts') { closeShortcuts(); return; }
   if (act === 'settings-group') { showSettingsGroup(btn.getAttribute('data-group') || 'voice'); return; }
+  if (act === 'new-provider') {
+    var idEl = $('#s-provider-id'), baseEl = $('#s-provider-base'), pathEl = $('#s-provider-path'), modelEl = $('#s-provider-model');
+    if (idEl) idEl.value = 'custom';
+    if (baseEl) baseEl.value = '';
+    if (pathEl) pathEl.value = '/chat/completions';
+    if (modelEl) modelEl.value = '';
+    if (idEl) idEl.focus();
+    return;
+  }
+  if (act === 'save-provider') {
+    var pId = ($('#s-provider-id').value || '').trim();
+    var pBase = ($('#s-provider-base').value || '').trim();
+    var pPath = ($('#s-provider-path').value || '').trim();
+    var pModel = ($('#s-provider-model').value || '').trim();
+    if (!/^[a-z0-9][a-z0-9_-]{0,31}$/i.test(pId)) return toast('供应商 ID 只能用字母/数字/_/-，最长 32 位', 'warn');
+    if (!/^https?:\/\/[^\s]+$/i.test(pBase)) return toast('Base URL 必须是 http(s) 地址', 'warn');
+    if (pPath && pPath.charAt(0) !== '/') return toast('Chat path 需以 / 开头', 'warn');
+    post({ action: 'saveProvider', id: pId, baseUrl: pBase, chatPath: pPath, model: pModel });
+    return;
+  }
+  if (act === 'delete-provider') {
+    var dId = ($('#s-provider-id').value || '').trim();
+    if (!dId) return toast('先选择或填写供应商 ID', 'warn');
+    askConfirm('删除供应商「' + dId + '」？如果仍被模型/交叉阵容引用，会拒绝删除。', function () {
+      post({ action: 'deleteProvider', id: dId });
+    });
+    return;
+  }
   if (act === 'open-cmd') { openCommandPalette(); return; }
   if (act === 'go-settings') return go(3);
   if (act === 'go-history') return go(1);
@@ -1928,6 +1993,17 @@ document.addEventListener('click', function (e) {
 });
 $('#hist-search').addEventListener('input', function (e) { onHistSearch(e.target.value || ''); });
 $('#settings-form').addEventListener('input', markSettingsDirty);
+$('#s-provider-edit').addEventListener('change', function () { fillProviderEditor(this.value); });
+$('#s-provider-preset').addEventListener('change', function () {
+  var v = this.value;
+  if (!v) return;
+  var parts = v.split('|');
+  $('#s-provider-id').value = parts[0] || '';
+  $('#s-provider-base').value = parts[1] || '';
+  $('#s-provider-path').value = parts[2] || '/chat/completions';
+  $('#s-provider-model').value = '';
+  this.value = '';
+});
 $('#settings-form').addEventListener('change', markSettingsDirty);
 $('#cmd-input').addEventListener('input', function () { APP.cmdIndex = 0; renderCommandList(); });
 $('#cmd-list').addEventListener('click', function (e) {

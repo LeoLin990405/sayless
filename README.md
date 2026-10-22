@@ -2,7 +2,7 @@
 
 > ⚠️ **声明**：本项目最初以 Typeless 作为产品研究参照，但 **v6.0 起 UI 已完全重构为独立的 Sayless Paper 视觉系统**，不再复刻其界面；仅作学习研究之用，**切勿用于任何商业用途**（详见 [LICENSE](LICENSE)）。与原开发者无任何隶属或授权关系。
 
-**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个独立的「纸面工作台」菜单栏 App。当前版本 **v6.0.0**（见 [CHANGELOG](CHANGELOG.md)）。
+**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个独立的「纸面工作台」菜单栏 App。当前版本 **v6.1.0**（见 [CHANGELOG](CHANGELOG.md)）。
 
 干净的自研实现（不含任何第三方听写应用代码），模型走**你自己的套餐**，词语库和听写历史全部本地。
 
@@ -32,6 +32,9 @@
 |---|---|
 | ![命令面板](docs/screenshots/hub-command.png) | ![快捷键](docs/screenshots/hub-shortcuts.png) |
 
+<p align="center"><img src="docs/screenshots/hub-settings-model.png" width="920" alt="模型 / 供应商连接"><br/>
+<sub>模型页：内置供应商 + 任意 OpenAI 兼容自定义端点</sub></p>
+
 
 ## 特性一览
 
@@ -42,6 +45,7 @@
 - **自我学习**：`sayless learn` 用 LCS 智能 diff 自动生成词条，`--mine --apply` 把高频修正回写词库
 - **完全可定制**：`~/.sayless/plugins/` 放一个 `.mjs` 即可接管管线任意环节（见 [PLUGINS.md](PLUGINS.md)）
 - **Sayless Paper 界面**：暖纸底 + 墨色排版 + 朱砂印章；顶部刊头导航取代侧栏，首页是刊头/印章/52 周书写记录，历史是纸面台账，设置是「分类导航 + 单组表单 + 保存状态」；**⌘K 命令面板**、⌘1–4 切页、`/` 聚焦搜索、`?` 快捷键帮助；历史支持全量搜索、分页与命中高亮
+- **模型接入范围**：内置 14 家 OpenAI 兼容 provider；设置页「供应商连接」可新增/编辑/删除任意 OpenAI Chat Completions 端点（OpenAI / OpenRouter / Groq / Ollama / LM Studio / SiliconFlow / 自建网关…），模型名自由填写，听写/翻译/问答/交叉阵容可混用不同家。原生 Anthropic Messages / Gemini generateContent 等非 OpenAI 协议不在内置范围，请走 OpenRouter 等网关或插件；ASR 仍是 whisper / MiMo / 方舟 / OpenAI 兼容四类适配器。
 - **可靠性**：LLM 429/5xx 自动重试、录音结束才进入转写、配置原子写入、空识别非零退出、粘贴后恢复剪贴板（App 用 NSPasteboard 快照恢复文本/图片/文件；CLI 为文本级）；麦克风权限预检、UserNotifications 原生通知、词典/历史写入失败不再假成功
 
 ```mermaid
@@ -113,7 +117,7 @@ SAYLESS_SIGN=adhoc BUILD_ONLY=1 ./build.sh   # 跳过钥匙串里的持久证书
 
 - **录音纸片**：屏幕底部浮出米纸小条（朱砂录音点、墨色波形、红色停止），Listening / Translating / Asking 状态，Transcribing 带循环点动效；Esc 取消，90s 自动收尾
 - **hub 四页**：首页（刊头 + 口述字数/条数/活跃天/连续天 + 52 周书写记录）｜历史记录（纸面台账、全量搜索、复制、回放、重转写、删除、清空）｜词典（索引式替换/热词/词频/风格规则/分应用层增删改）｜设置（分类导航 + 单组表单，见下）
-- **设置页**：左侧分类导航（语音 / 模型 / 质量 / 交互 / 数据）+ 单组表单，避免一次列出 11 个 section；顶部与底部均可保存，未保存/已保存有状态提示。ASR 引擎/路径/语种、润色供应商+模型+重试、翻译、交叉阵容与仲裁、Ask（引擎/代理/结果数）、工作流、提示音/PTT/结果投放/剪贴板恢复、**快捷键录制（冲突内联提示）**、**供应商 API Key 写入 + 各 provider 已配置状态**（密码框不回显，key 只落本地 config.json 0600）、**一键体检**——保存深合并写回 config.json，数字/空值也能正确清除
+- **设置页**：左侧分类导航（语音 / 模型 / 质量 / 交互 / 数据）+ 单组表单，避免一次列出 11 个 section；顶部与底部均可保存，未保存/已保存有状态提示。ASR 引擎/路径/语种、润色供应商+模型+重试、翻译、交叉阵容与仲裁、Ask（引擎/代理/结果数）、工作流、提示音/PTT/结果投放/剪贴板恢复、**快捷键录制（冲突内联提示）**、**供应商 API Key 写入 + 各 provider 已配置状态**（密码框不回显，key 只落本地 config.json 0600）、**一键体检**；「供应商连接」可新增/编辑/删除任意 OpenAI 兼容 provider——保存深合并写回 config.json，数字/空值也能正确清除
 - **键位**：设置页点击键位后按下新组合，保存到 config.json 的 `"hotkeys"`（slot: dictate/translate/ask，key 为 macOS 键码，modifier: option/command/control/shift/none），重启 App 生效
 - **菜单栏**：点击状态栏 S 图标弹出**自定义 Paper 面板**（不是系统 NSMenu）——开始听写 / 翻译 / 问答、最近 3 条、工作台 / 历史 / 设置、更多菜单（登录启动 / 词库 / 数据目录 / 日志 / 辅助功能 / 紧急停止 / 退出）
 
@@ -274,7 +278,7 @@ flowchart LR
 ## 开发与测试
 
 ```sh
-npm test                     # 74 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
+npm test                     # 75 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
 npm run check                # node --check + 完整测试
 BUILD_ONLY=1 ./app/build.sh  # 只编译打包 App（不装 /Applications、不启动）
 node tools/gen-hub-demo.mjs /tmp/hub-demo  # Chrome headless 渲染 hub 四页截图 + DOM js-error 检查

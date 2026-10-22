@@ -1,4 +1,4 @@
-// SaylessBar v6.0 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v6.1 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -368,7 +368,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "6.0.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "6.1.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -1406,6 +1406,79 @@ extension HubWindow: WKScriptMessageHandler {
             web?.evaluateJavaScript("window.historySearchDone && window.historySearchDone(\(jsStringLiteral(rid)), \(jsStringLiteral(query)), \(jsonForHTML(result.entries)), \(result.total))")
             logLine("history search q=\(query) matches=\(result.total) shown=\(result.entries.count)")
 
+        case "saveProvider":
+            let pid = stringValue(j["id"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let base = stringValue(j["baseUrl"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let chatPath = stringValue(j["chatPath"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let model = stringValue(j["model"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard pid.range(of: "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$", options: .regularExpression) != nil else {
+                reply(false, "供应商 ID 只能用字母/数字/_/-，最长 32 位"); break
+            }
+            guard let url = URL(string: base),
+                  let scheme = url.scheme?.lowercased(),
+                  ["http", "https"].contains(scheme), url.host != nil else {
+                reply(false, "Base URL 必须是 http(s) 地址"); break
+            }
+            guard chatPath.isEmpty || chatPath.hasPrefix("/") else {
+                reply(false, "Chat path 需以 / 开头"); break
+            }
+            guard var cfg = writableJSON(saylessConfigFile) else {
+                reply(false, "config.json 已损坏，未写入供应商"); break
+            }
+            var providers = (cfg["providers"] as? [String: Any]) ?? [:]
+            var entry = (providers[pid] as? [String: Any]) ?? [:]
+            entry["baseUrl"] = base
+            if chatPath.isEmpty { entry.removeValue(forKey: "chatPath") } else { entry["chatPath"] = chatPath }
+            if model.isEmpty { entry.removeValue(forKey: "model") } else { entry["model"] = model }
+            providers[pid] = entry
+            cfg["providers"] = providers
+            if writeJSONObject(cfg, to: saylessConfigFile) {
+                reply(true, "供应商 \(pid) 已保存")
+                scheduleRefresh()
+            } else {
+                reply(false, "供应商写入失败（检查 config.json 权限）")
+            }
+
+        case "deleteProvider":
+            let pid = stringValue(j["id"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !pid.isEmpty else { reply(false, "缺少供应商 ID"); break }
+            guard var cfg = writableJSON(saylessConfigFile) else {
+                reply(false, "config.json 已损坏，未删除供应商"); break
+            }
+            var providers = (cfg["providers"] as? [String: Any]) ?? [:]
+            guard providers[pid] != nil else { reply(false, "供应商不存在：\(pid)"); break }
+            var used: [String] = []
+            if ((cfg["llm"] as? [String: Any])?["provider"] as? String) == pid { used.append("润色") }
+            if ((cfg["translate"] as? [String: Any])?["provider"] as? String) == pid { used.append("翻译") }
+            if ((cfg["ask"] as? [String: Any])?["provider"] as? String) == pid { used.append("问答") }
+            let cross = (cfg["cross"] as? [String: Any]) ?? [:]
+            if ((cross["arbiter"] as? [String: Any])?["provider"] as? String) == pid { used.append("仲裁") }
+            for m in (cross["models"] as? [[String: Any]]) ?? [] {
+                if (m["provider"] as? String) == pid { used.append("交叉阵容"); break }
+            }
+            let asr = (cfg["asr"] as? [String: Any]) ?? [:]
+            let adapter = (asr["adapter"] as? String) ?? "whisper"
+            if adapter == "ark-ws" && pid == "ark-plan" { used.append("方舟语音") }
+            if adapter == "mimo-asr" && pid == "mimo-plan" { used.append("MiMo 语音") }
+            for (name, wf) in (cfg["workflows"] as? [String: Any]) ?? [:] {
+                if ((wf as? [String: Any])?["llm"] as? [String: Any]).flatMap({ $0["provider"] as? String }) == pid {
+                    used.append("工作流 \(name)")
+                    break
+                }
+            }
+            guard used.isEmpty else {
+                reply(false, "供应商仍在使用：\(used.joined(separator: "、"))；请先切换")
+                break
+            }
+            providers.removeValue(forKey: pid)
+            cfg["providers"] = providers
+            if writeJSONObject(cfg, to: saylessConfigFile) {
+                reply(true, "供应商 \(pid) 已删除")
+                scheduleRefresh()
+            } else {
+                reply(false, "删除失败（检查 config.json 权限）")
+            }
+
         case "exportDict":
             let r = exportDictionary()
             reply(r.0, r.1)
@@ -1634,7 +1707,7 @@ struct MenuBarView: View {
 final class MenuBarPopover: NSObject {
     private let popover = NSPopover()
     private weak var app: AppDelegate?
-    private weak var button: NSStatusBarButton?
+    private var button: NSStatusBarButton?
 
     init(app: AppDelegate, button: NSStatusBarButton) {
         self.app = app

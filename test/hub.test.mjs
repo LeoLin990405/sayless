@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '6.0.0',
+    version: '6.1.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '6.0.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '6.1.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -194,6 +194,8 @@ test('hub 写操作使用 native 结果回调，不先报成功', () => {
   assert.match(TPL, /id="cmd"/);
   assert.match(TPL, /window\.openCommandPalette/);
   assert.match(TPL, /id="shortcuts"/);
+  assert.match(TPL, /id="s-provider-edit"/);
+  assert.match(TPL, /saveProvider/);
   assert.match(TPL, /window\.openShortcuts/);
   assert.match(TPL, /highlightText/);
   assert.match(TPL, /class="hero-visual"/);
@@ -360,10 +362,51 @@ test('hub 设置分类导航只显示当前组，并提示未保存状态', { sk
     assert.doesNotMatch(dom, /id="js-error"/);
     assert.match(dom, /settingsux-marker/);
     assert.match(dom, /visible":\["voice"\]/);
-    assert.match(dom, /modelVisible":\["model","model"\]/);
+    assert.match(dom, /modelVisible":\["model","model","model"\]/);
     assert.match(dom, /active":"model"/);
     assert.match(dom, /dirty":"未保存"/);
     assert.match(dom, /润色和翻译/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('hub 供应商编辑器支持预设填充和自定义字段', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-provider-'));
+  try {
+    const data = demoData();
+    data.initialTab = 3;
+    const safe = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const extra = `<script>
+      showSettingsGroup('model');
+      var preset = document.getElementById('s-provider-preset');
+      preset.value = 'openrouter|https://openrouter.ai/api/v1|/chat/completions';
+      preset.dispatchEvent(new Event('change', { bubbles: true }));
+      var marker = document.createElement('div');
+      marker.id = 'provider-marker';
+      marker.textContent = JSON.stringify({
+        id: document.getElementById('s-provider-id').value,
+        base: document.getElementById('s-provider-base').value,
+        path: document.getElementById('s-provider-path').value,
+        visible: document.querySelector('.section[data-group="model"]').style.display !== 'none'
+      });
+      document.body.appendChild(marker);
+    </script>`;
+    const htmlPath = path.join(dir, 'hub.html');
+    fs.writeFileSync(htmlPath, TPL.replace('__DATAJSON__', safe).replace('</body>', extra + '</body>'));
+    const r = spawnSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
+      '--dump-dom', `file://${htmlPath}`
+    ], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    const dom = r.stdout || '';
+    assert.doesNotMatch(dom, /id="js-error"/);
+    assert.match(dom, /id="provider-marker"/);
+    assert.match(dom, /id":"openrouter"/);
+    assert.match(dom, /https:\/\/openrouter\.ai\/api\/v1/);
+    assert.match(dom, /visible":true/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
