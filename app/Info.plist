@@ -5,8 +5,8 @@
     <key>CFBundleName</key><string>SaylessBar</string>
     <key>CFBundleDisplayName</key><string>SaylessBar</string>
     <key>CFBundleIdentifier</key><string>io.leo.saylessbar</string>
-    <key>CFBundleVersion</key><string>6.2.0</string>
-    <key>CFBundleShortVersionString</key><string>6.2.0</string>
+    <key>CFBundleVersion</key><string>6.3.0</string>
+    <key>CFBundleShortVersionString</key><string>6.3.0</string>
     <key>CFBundleExecutable</key><string>SaylessBar</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>

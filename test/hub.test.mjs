@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '6.2.0',
+    version: '6.3.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -64,7 +64,7 @@ function demoData() {
     },
     providers: ['ark-plan', 'deepseek'],
     providerKeys: { 'ark-plan': true, deepseek: false },
-    env: { node: 'v22.0.0', whisperBinExists: true, whisperModelExists: true, ffmpegExists: true, configMode: '600', configExists: true, dictExists: true, axTrusted: true, micStatus: 'authorized', plugins: [] }
+    env: { node: 'v22.0.0', whisperBinExists: true, whisperModelExists: true, ffmpegExists: true, configMode: '600', configExists: true, dictExists: true, axTrusted: true, micStatus: 'authorized', inputMonitoringActive: true, plugins: [] }
   };
 }
 
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '6.2.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '6.3.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -425,12 +425,13 @@ test('hub 权限不足时显示可操作横幅，并支持稍后隐藏', { skip:
       var shown = !document.getElementById('permission-banner').hidden;
       var axText = document.getElementById('perm-ax-text').textContent;
       var micText = document.getElementById('perm-mic-text').textContent;
+      var inputText = document.getElementById('perm-input-text').textContent;
       APP.permDismissed = true;
       renderPermissions();
       var dismissed = document.getElementById('permission-banner').hidden;
       var marker = document.createElement('div');
       marker.id = 'permission-marker';
-      marker.textContent = JSON.stringify({ shown: shown, axText: axText, micText: micText, dismissed: dismissed });
+      marker.textContent = JSON.stringify({ shown: shown, axText: axText, micText: micText, inputText: inputText, dismissed: dismissed });
       document.body.appendChild(marker);
     </script>`;
     const htmlPath = path.join(dir, 'hub.html');
@@ -447,6 +448,7 @@ test('hub 权限不足时显示可操作横幅，并支持稍后隐藏', { skip:
     assert.match(dom, /shown":true/);
     assert.match(dom, /axText":"需要授权"/);
     assert.match(dom, /micText":"已拒绝"/);
+    assert.match(dom, /inputText":"已启用"/);
     assert.match(dom, /dismissed":true/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

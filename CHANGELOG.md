@@ -1,5 +1,22 @@
 # Changelog
 
+## v6.3.0 (2026-10-22)
+
+定位并修复更新后“点了授权仍失效”的真实原因。
+
+### 权限
+
+- **区分两套 TCC**：辅助功能（Accessibility，自动粘贴/控制电脑）与输入监控（ListenEvent，CGEventTap 监听全局热键）是独立权限。此前用户实际勾选的是输入监控，但应用因 AX 未授权而停止尝试 CGEventTap。
+- **CGEventTap 独立重试**：8 秒轮询不再以 AX 为前置条件；只要输入监控已授权，热键 tap 就能启用，不再被 AX 状态拖死。
+- **自动注册辅助功能**：每次版本更新自动调用 `AXIsProcessTrustedWithOptions(prompt:true)`，让当前 App 出现在「辅助功能」列表并弹系统提示，避免用户找不到 `+` 添加。
+- **输入监控状态**：设置权限区新增输入监控状态和打开设置按钮；hub 权限状态同步三项（辅助功能/麦克风/输入监控）。
+- **粘贴不再走 System Events**：AX 授权后直接 `CGEvent` post ⌘V，移除 osascript / Automation 失败链。
+- 菜单栏/hub 仍保留一键权限修复入口；macOS 不允许应用自动授予 TCC。
+
+### Tests / Docs
+
+- 76 个 Node 集成测试；提示文案、权限状态、Changelog/README 更新到 6.3.0。
+
 ## v6.2.0 (2026-10-22)
 
 把「更新后权限静默失效」改成可发现、可操作、无需重启的权限修复流程。

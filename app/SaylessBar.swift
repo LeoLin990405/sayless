@@ -1,4 +1,4 @@
-// SaylessBar v6.2 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v6.3 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -368,7 +368,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "6.2.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "6.3.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -764,6 +764,7 @@ final class HubWindow: NSObject {
             "dictExists": FileManager.default.fileExists(atPath: saylessDictFile),
             "axTrusted": AXIsProcessTrusted(),
             "micStatus": currentMicStatusString(),
+            "inputMonitoringActive": AppDelegate.tapActive,
             "plugins": pluginNames
         ]
 
@@ -1135,7 +1136,9 @@ final class HubWindow: NSObject {
     }
 
     func pushPermissions() {
-        web?.evaluateJavaScript("window.permissionsUpdated && window.permissionsUpdated(\(AXIsProcessTrusted() ? "true" : "false"), \(jsStringLiteral(currentMicStatusString())))")
+        let ax = AXIsProcessTrusted()
+        let input = AppDelegate.tapActive
+        web?.evaluateJavaScript("window.permissionsUpdated && window.permissionsUpdated(\(ax ? "true" : "false"), \(jsStringLiteral(currentMicStatusString())), \(input ? "true" : "false"))")
     }
 
     private func triggerDictate() {
@@ -1504,10 +1507,14 @@ extension HubWindow: WKScriptMessageHandler {
         case "requestMic":
             (NSApp.delegate as? AppDelegate)?.requestMicPermission()
 
+        case "requestInputMonitoring":
+            (NSApp.delegate as? AppDelegate)?.requestInputMonitoring()
+
         case "checkPermissions":
             let ax = AXIsProcessTrusted()
             let mic = currentMicStatusString()
-            web?.evaluateJavaScript("window.permissionsUpdated && window.permissionsUpdated(\(ax ? "true" : "false"), \(jsStringLiteral(mic)))")
+            let input = AppDelegate.tapActive
+            web?.evaluateJavaScript("window.permissionsUpdated && window.permissionsUpdated(\(ax ? "true" : "false"), \(jsStringLiteral(mic)), \(input ? "true" : "false"))")
 
         case "runDoctor":
             runDoctor()
@@ -2057,12 +2064,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notify("粘贴需要辅助功能授权", "文本已复制到剪贴板，可在系统设置→隐私与安全性→辅助功能 授权 SaylessBar")
             return false
         }
-        let paste = runToolResult("/usr/bin/osascript", ["-e", "tell application \"System Events\" to keystroke \"v\" using command down"])
-        guard paste.status == 0 else {
-            logLine("paste failed status=\(paste.status) err=\(paste.err)")
-            notify("自动粘贴失败", "文本已复制到剪贴板，请手动 ⌘V；若使用 System Events 请检查 隐私与安全性→自动化")
-            return false
-        }
+        // 直接 post CGEvent，避免 System Events / Automation 权限链。
+        // 这里已经通过 AXIsProcessTrusted 检查，事件会投递到当前焦点应用。
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let down = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)
+        down?.flags = .maskCommand
+        up?.flags = .maskCommand
+        down?.post(tap: .cghidEventTap)
+        up?.post(tap: .cghidEventTap)
         if restoreClipboard {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
                 // 用户在这 1.6s 内又复制了别的东西时，不要用旧快照覆盖新内容
@@ -2111,33 +2121,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? FileManager.default.createDirectory(atPath: saylessDataDir, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: flag) {
             try? "".write(toFile: flag, atomically: true, encoding: .utf8)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
-                self?.showPermissionAlert()
-            }
-        }
-    }
-
-    func showPermissionAlert() {
-        guard !AXIsProcessTrusted() else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "需要辅助功能授权"
-        alert.informativeText = "自动粘贴、按住说话和 Esc 取消需要此权限。macOS 在应用更新后可能要求重新授权；授权后无需重启，约 8 秒内自动生效。"
-        alert.addButton(withTitle: "打开系统设置")
-        alert.addButton(withTitle: "稍后")
-        if alert.runModal() == .alertFirstButtonReturn {
-            requestAX()
+            // 让 macOS 把当前 App 注册到「辅助功能」列表并弹系统授权提示；
+            // 这比只打开设置页更可靠，用户可在提示里直接 Open System Settings。
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(opts)
+            logLine("requested Accessibility prompt")
         }
     }
 
     @objc func permissionStateChanged() {
-        if AXIsProcessTrusted() {
+        if Self.tapActive || AXIsProcessTrusted() {
             if !Self.tapActive {
                 logLine("AX trusted（回到前台）")
-                installCGEventTap()
+                installCGEventTap(quiet: true)
             }
             hub.pushPermissions()
         }
+    }
+
+    @objc func requestInputMonitoring() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
     }
 
     func requestMicPermission() {
@@ -2231,7 +2234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var tapPort: CFMachPort?
     var tapSource: CFRunLoopSource?
-    func installCGEventTap() {
+    func installCGEventTap(quiet: Bool = false) {
         let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
                    | (1 << CGEventType.tapDisabledByTimeout.rawValue)
                    | (1 << CGEventType.tapDisabledByUserInput.rawValue)
@@ -2268,7 +2271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
                                            options: .listenOnly, eventsOfInterest: CGEventMask(mask),
                                            callback: cb, userInfo: nil) else {
-            logLine("CGEventTap 未创建（待辅助功能授权），Carbon 兜底中")
+            if !quiet { logLine("CGEventTap 未创建（待辅助功能/输入监控授权），Carbon 兜底中") }
             return
         }
         tapPort = port
@@ -2339,7 +2342,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerCarbonHotkeys()
         Timer.scheduledTimer(withTimeInterval: 8, repeats: true) { [weak self] t in
             guard let self, self.tapPort == nil else { t.invalidate(); return }
-            if AXIsProcessTrusted() { logLine("AX trusted（授权翻转）"); self.installCGEventTap(); t.invalidate() }
+            // CGEventTap 属于 Input Monitoring（ListenEvent）；AX 属于控制电脑，
+            // 两者分开授权，不能因为 AX 未授权就停止重试 tap。
+            self.installCGEventTap(quiet: true)
+            if self.tapPort != nil {
+                logLine("CGEventTap 已启用（权限翻转）")
+                self.hub.pushPermissions()
+                t.invalidate()
+            }
         }
     }
 

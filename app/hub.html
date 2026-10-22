@@ -808,7 +808,10 @@ pre{background:#f5eee0;border:1px solid var(--line);border-radius:2px;padding:10
         <div class="frow"><label>麦克风</label><span id="perm-mic-text" class="unit">检查中</span>
           <button class="btn ghost mini" data-act="request-mic">请求 / 设置</button>
         </div>
-        <div class="hint">辅助功能用于自动粘贴、PTT 和 Esc 取消；麦克风用于录音。macOS 更新应用后可能要求重新授权，授权后无需重启，约 8 秒内自动生效。</div>
+        <div class="frow"><label>输入监控</label><span id="perm-input-text" class="unit">检查中</span>
+          <button class="btn ghost mini" data-act="request-input">打开设置</button>
+        </div>
+        <div class="hint">辅助功能用于自动粘贴；输入监控用于全局热键/PTT/Esc；麦克风用于录音。macOS 更新应用后可能要求重新授权，授权后无需重启，约 8 秒内自动生效。</div>
       </div>
 
       <div class="section" data-group="data">
@@ -1467,10 +1470,17 @@ function renderPermissions() {
     micEl.textContent = permissionText(mic);
     micEl.className = 'unit ' + (mic === 'authorized' ? 'ok' : (mic === 'denied' || mic === 'restricted' ? 'warn' : ''));
   }
+  var inputEl = $('#perm-input-text');
+  if (inputEl) {
+    var input = ENV.inputMonitoringActive === true;
+    inputEl.textContent = input ? '已启用' : '需要授权';
+    inputEl.className = 'unit ' + (input ? 'ok' : 'warn');
+  }
 }
-window.permissionsUpdated = function (ax, mic) {
+window.permissionsUpdated = function (ax, mic, inputMonitoring) {
   ENV.axTrusted = !!ax;
   ENV.micStatus = mic || 'unknown';
+  ENV.inputMonitoringActive = !!inputMonitoring;
   renderPermissions();
 };
 function startPermissionPoll() {
@@ -1870,6 +1880,7 @@ document.addEventListener('click', function (e) {
   if (act === 'settings-group') { showSettingsGroup(btn.getAttribute('data-group') || 'voice'); return; }
   if (act === 'request-ax') { post({ action: 'requestAX' }); startPermissionPoll(); return; }
   if (act === 'request-mic') { post({ action: 'requestMic' }); startPermissionPoll(); return; }
+  if (act === 'request-input') { post({ action: 'requestInputMonitoring' }); startPermissionPoll(); return; }
   if (act === 'check-permissions') { post({ action: 'checkPermissions' }); return; }
   if (act === 'dismiss-permission') { APP.permDismissed = true; renderPermissions(); return; }
   if (act === 'new-provider') {
