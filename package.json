@@ -1,6 +1,6 @@
 {
   "name": "sayless",
-  "version": "6.1.0",
+  "version": "6.2.0",
   "description": "本地优先的中文语音听写 / 翻译 / 问答管线（macOS 菜单栏 App + CLI）",
   "private": true,
   "type": "module",

@@ -1,4 +1,4 @@
-// SaylessBar v6.1 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// SaylessBar v6.2 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
 // 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
@@ -368,7 +368,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "6.1.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "6.2.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -762,6 +762,8 @@ final class HubWindow: NSObject {
             "configMode": configFileMode() ?? "—",
             "configExists": FileManager.default.fileExists(atPath: saylessConfigFile),
             "dictExists": FileManager.default.fileExists(atPath: saylessDictFile),
+            "axTrusted": AXIsProcessTrusted(),
+            "micStatus": currentMicStatusString(),
             "plugins": pluginNames
         ]
 
@@ -1132,6 +1134,10 @@ final class HubWindow: NSObject {
         web?.evaluateJavaScript("window.doctorDone && window.doctorDone(\(jsStringLiteral(text)))")
     }
 
+    func pushPermissions() {
+        web?.evaluateJavaScript("window.permissionsUpdated && window.permissionsUpdated(\(AXIsProcessTrusted() ? "true" : "false"), \(jsStringLiteral(currentMicStatusString())))")
+    }
+
     private func triggerDictate() {
         dismissForRecording()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -1492,6 +1498,17 @@ extension HubWindow: WKScriptMessageHandler {
             let r = exportHistory()
             reply(r.0, r.1)
 
+        case "requestAX":
+            (NSApp.delegate as? AppDelegate)?.requestAX()
+
+        case "requestMic":
+            (NSApp.delegate as? AppDelegate)?.requestMicPermission()
+
+        case "checkPermissions":
+            let ax = AXIsProcessTrusted()
+            let mic = currentMicStatusString()
+            web?.evaluateJavaScript("window.permissionsUpdated && window.permissionsUpdated(\(ax ? "true" : "false"), \(jsStringLiteral(mic)))")
+
         case "runDoctor":
             runDoctor()
 
@@ -1521,6 +1538,16 @@ extension HubWindow: WKScriptMessageHandler {
 }
 
 
+
+func currentMicStatusString() -> String {
+    switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    case .authorized: return "authorized"
+    case .denied: return "denied"
+    case .restricted: return "restricted"
+    case .notDetermined: return "notDetermined"
+    @unknown default: return "unknown"
+    }
+}
 
 func keyCodeDisplay(_ code: UInt32) -> String {
     let map: [UInt32: String] = [
@@ -1566,6 +1593,7 @@ struct MenuBarView: View {
     let hotkeyAsk: String
     let recent: [RecentNote]
     let loginEnabled: Bool
+    let axTrusted: Bool
     let onStart: () -> Void
     let onTranslate: () -> Void
     let onAsk: () -> Void
@@ -1597,6 +1625,24 @@ struct MenuBarView: View {
                     Circle().fill(statusColor).frame(width: 6, height: 6)
                     Text(statusText).font(.system(size: 7, weight: .medium, design: .monospaced)).tracking(0.8).foregroundColor(PaperPalette.muted)
                 }
+            }
+
+            if !axTrusted {
+                Button(action: onAX) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("需要辅助功能授权").font(.system(size: 9, weight: .semibold))
+                            Text("自动粘贴 / PTT / Esc 取消").font(.system(size: 6.5, design: .monospaced)).opacity(0.72)
+                        }
+                        Spacer()
+                        Text("去设置").font(.system(size: 8, weight: .medium))
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 38)
+                    .foregroundColor(PaperPalette.accent)
+                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(PaperPalette.accent.opacity(0.42), lineWidth: 1))
+                }.buttonStyle(.plain).padding(.top, 10)
             }
 
             Rectangle().fill(PaperPalette.line).frame(height: 1).padding(.vertical, 13)
@@ -1679,7 +1725,7 @@ struct MenuBarView: View {
             }
         }
         .padding(17)
-        .frame(width: 344, height: 400, alignment: .topLeading)
+        .frame(width: 344, height: axTrusted ? 400 : 446, alignment: .topLeading)
         .background(PaperPalette.paper)
     }
 
@@ -1727,18 +1773,20 @@ final class MenuBarPopover: NSObject {
         guard let app, let button else { return }
         let view = makeView(app)
         let host = NSHostingController(rootView: view)
-        host.view.frame = NSRect(x: 0, y: 0, width: 344, height: 400)
+        let height: CGFloat = AXIsProcessTrusted() ? 400 : 446
+        host.view.frame = NSRect(x: 0, y: 0, width: 344, height: height)
         popover.contentViewController = host
-        popover.contentSize = NSSize(width: 344, height: 400)
+        popover.contentSize = NSSize(width: 344, height: height)
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
-    static func renderPreview(app: AppDelegate, to path: String) -> Bool {
+    static func renderPreview(app: AppDelegate, to path: String, axTrusted: Bool = AXIsProcessTrusted()) -> Bool {
         let popover = MenuBarPopover(app: app, button: NSStatusBarButton(frame: NSRect(x: 0, y: 0, width: 24, height: 24)))
-        let view = popover.makeView(app)
+        let view = popover.makeView(app, axTrusted: axTrusted)
         let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: 344, height: 400)
+        let height: CGFloat = axTrusted ? 400 : 446
+        host.frame = NSRect(x: 0, y: 0, width: 344, height: height)
         host.appearance = NSAppearance(named: .aqua)
         host.layoutSubtreeIfNeeded()
         host.displayIfNeeded()
@@ -1748,7 +1796,7 @@ final class MenuBarPopover: NSObject {
         do { try data.write(to: URL(fileURLWithPath: path)); return true } catch { return false }
     }
 
-    private func makeView(_ app: AppDelegate) -> MenuBarView {
+    private func makeView(_ app: AppDelegate, axTrusted: Bool = AXIsProcessTrusted()) -> MenuBarView {
         let statusText: String
         let statusColor: Color
         if app.recordingActive {
@@ -1768,6 +1816,7 @@ final class MenuBarPopover: NSObject {
             hotkeyAsk: app.hotkeyDisplay("ask"),
             recent: recent,
             loginEnabled: login,
+            axTrusted: axTrusted,
             onStart: { [weak self, weak app] in self?.closeThen { app?.toggle() } },
             onTranslate: { [weak self, weak app] in self?.closeThen { app?.translateToggle() } },
             onAsk: { [weak self, weak app] in self?.closeThen { app?.askToggle() } },
@@ -1893,6 +1942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loadAppConfig()
         registerHotkeys()
         checkAX()
+        NotificationCenter.default.addObserver(self, selector: #selector(permissionStateChanged), name: NSApplication.didBecomeActiveNotification, object: nil)
         logLine("launched v\(appVersion) ptt=\(ptt) insert=\(insertMode)")
         // 调试/自动化口子：SAYLESS_SHOW_HUB=<tab> 启动即开面板（0首页 1历史 2词典 3设置）
         if let hubArg = ProcessInfo.processInfo.environment["SAYLESS_SHOW_HUB"], let t = Int(hubArg) {
@@ -2057,13 +2107,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         logLine("AX NOT trusted")
         installCGEventTap() // 未授权时创建失败，但保留重试入口
-        let flag = saylessDataDir + "/.ax-prompted"
+        let flag = saylessDataDir + "/.ax-prompted-\(appVersion)"
         try? FileManager.default.createDirectory(atPath: saylessDataDir, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: flag) {
-            // 仅首次弹系统授权框，之后永不自动弹
             try? "".write(toFile: flag, atomically: true, encoding: .utf8)
-            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(opts)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                self?.showPermissionAlert()
+            }
+        }
+    }
+
+    func showPermissionAlert() {
+        guard !AXIsProcessTrusted() else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "需要辅助功能授权"
+        alert.informativeText = "自动粘贴、按住说话和 Esc 取消需要此权限。macOS 在应用更新后可能要求重新授权；授权后无需重启，约 8 秒内自动生效。"
+        alert.addButton(withTitle: "打开系统设置")
+        alert.addButton(withTitle: "稍后")
+        if alert.runModal() == .alertFirstButtonReturn {
+            requestAX()
+        }
+    }
+
+    @objc func permissionStateChanged() {
+        if AXIsProcessTrusted() {
+            if !Self.tapActive {
+                logLine("AX trusted（回到前台）")
+                installCGEventTap()
+            }
+            hub.pushPermissions()
+        }
+    }
+
+    func requestMicPermission() {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                DispatchQueue.main.async { [weak self] in self?.hub.pushPermissions() }
+            }
+        case .authorized:
+            hub.pushPermissions()
+        default:
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
         }
     }
     @objc func stopFromUI() {
@@ -2341,6 +2427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func requestAX() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(opts)
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
     @objc func showHistoryTab() { hub.show(tab: 1) }
     @objc func showSettingsTab() { hub.show(tab: 3) }

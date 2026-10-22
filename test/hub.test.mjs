@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '6.1.0',
+    version: '6.2.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -64,7 +64,7 @@ function demoData() {
     },
     providers: ['ark-plan', 'deepseek'],
     providerKeys: { 'ark-plan': true, deepseek: false },
-    env: { node: 'v22.0.0', whisperBinExists: true, whisperModelExists: true, ffmpegExists: true, configMode: '600', configExists: true, dictExists: true, plugins: [] }
+    env: { node: 'v22.0.0', whisperBinExists: true, whisperModelExists: true, ffmpegExists: true, configMode: '600', configExists: true, dictExists: true, axTrusted: true, micStatus: 'authorized', plugins: [] }
   };
 }
 
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '6.1.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '6.2.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }
@@ -407,6 +407,47 @@ test('hub 供应商编辑器支持预设填充和自定义字段', { skip: !fs.e
     assert.match(dom, /id":"openrouter"/);
     assert.match(dom, /https:\/\/openrouter\.ai\/api\/v1/);
     assert.match(dom, /visible":true/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('hub 权限不足时显示可操作横幅，并支持稍后隐藏', { skip: !fs.existsSync(CHROME) }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-perm-'));
+  try {
+    const data = demoData();
+    data.initialTab = 3;
+    data.env.axTrusted = false;
+    data.env.micStatus = 'denied';
+    const safe = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    const extra = `<script>
+      var shown = !document.getElementById('permission-banner').hidden;
+      var axText = document.getElementById('perm-ax-text').textContent;
+      var micText = document.getElementById('perm-mic-text').textContent;
+      APP.permDismissed = true;
+      renderPermissions();
+      var dismissed = document.getElementById('permission-banner').hidden;
+      var marker = document.createElement('div');
+      marker.id = 'permission-marker';
+      marker.textContent = JSON.stringify({ shown: shown, axText: axText, micText: micText, dismissed: dismissed });
+      document.body.appendChild(marker);
+    </script>`;
+    const htmlPath = path.join(dir, 'hub.html');
+    fs.writeFileSync(htmlPath, TPL.replace('__DATAJSON__', safe).replace('</body>', extra + '</body>'));
+    const r = spawnSync(CHROME, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+      `--user-data-dir=${path.join(dir, 'profile')}`, '--virtual-time-budget=1500',
+      '--dump-dom', `file://${htmlPath}`
+    ], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    const dom = r.stdout || '';
+    assert.doesNotMatch(dom, /id="js-error"/);
+    assert.match(dom, /permission-marker/);
+    assert.match(dom, /shown":true/);
+    assert.match(dom, /axText":"需要授权"/);
+    assert.match(dom, /micText":"已拒绝"/);
+    assert.match(dom, /dismissed":true/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

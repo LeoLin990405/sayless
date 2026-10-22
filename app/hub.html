@@ -101,6 +101,14 @@ mark{background:rgba(199,74,44,.16);color:var(--accent-deep);padding:0 1px}
 .setup-banner .sb-body b{font-family:var(--serif);font-size:16px;font-weight:600}
 .setup-banner .sub{font-size:11px;color:var(--ink-2);margin-top:3px}
 .setup-banner .warn{color:var(--red);font-size:10.5px;margin-top:5px}
+.permission-banner{max-width:1180px;margin:0 auto 14px;display:flex;align-items:center;gap:14px;background:#fae9df;border:1px solid rgba(199,74,44,.35);border-left:4px solid var(--accent);padding:13px 16px;border-radius:2px}
+.permission-banner[hidden]{display:none}
+.permission-banner .pb-icon{width:25px;height:25px;display:grid;place-items:center;background:var(--accent);color:var(--sheet);font-family:var(--serif);font-size:15px;border-radius:2px;flex-shrink:0}
+.permission-banner .pb-body{flex:1;min-width:0}
+.permission-banner .pb-body b{font-family:var(--serif);font-size:15px;font-weight:600}
+.permission-banner .sub{font-size:10.5px;color:var(--ink-2);margin-top:2px}
+#perm-ax-text.warn,#perm-mic-text.warn{color:var(--accent);font-weight:600}
+#perm-ax-text.ok,#perm-mic-text.ok{color:var(--green);font-weight:600}
 
 /* type */
 h1{font-family:var(--serif);font-weight:600;letter-spacing:-.5px;line-height:1.08}
@@ -499,6 +507,12 @@ pre{background:#f5eee0;border:1px solid var(--line);border-radius:2px;padding:10
 </header>
 
 <div class="main">
+  <div class="permission-banner" id="permission-banner" hidden>
+    <div class="pb-icon">!</div>
+    <div class="pb-body"><b>需要辅助功能授权</b><div class="sub" id="permission-text">自动粘贴、按住说话、Esc 取消需要此权限。macOS 更新应用后可能需要重新授权。</div></div>
+    <button class="btn mini" data-act="request-ax">去授权</button>
+    <button class="btn ghost mini" data-act="dismiss-permission">稍后</button>
+  </div>
   <div class="setup-banner" id="setup-banner" hidden>
     <div class="sb-body">
       <b>首次使用</b>
@@ -786,6 +800,18 @@ pre{background:#f5eee0;border:1px solid var(--line);border-radius:2px;padding:10
       </div>
 
       <div class="section" data-group="data">
+        <h3>权限 <span class="hintdot">辅助功能 / 麦克风</span></h3>
+        <div class="frow"><label>辅助功能</label><span id="perm-ax-text" class="unit">检查中</span>
+          <button class="btn ghost mini" data-act="request-ax">打开设置</button>
+          <button class="btn ghost mini" data-act="check-permissions">重新检测</button>
+        </div>
+        <div class="frow"><label>麦克风</label><span id="perm-mic-text" class="unit">检查中</span>
+          <button class="btn ghost mini" data-act="request-mic">请求 / 设置</button>
+        </div>
+        <div class="hint">辅助功能用于自动粘贴、PTT 和 Esc 取消；麦克风用于录音。macOS 更新应用后可能要求重新授权，授权后无需重启，约 8 秒内自动生效。</div>
+      </div>
+
+      <div class="section" data-group="data">
         <h3>供应商 API Key <span class="hintdot">只写不读，0600</span></h3>
         <div class="frow"><label>供应商</label><select id="s-key-provider"></select></div>
         <div class="frow"><label>API Key</label><input type="password" id="s-key-value" placeholder="粘贴 key；留空 = 不修改" autocomplete="off"></div>
@@ -885,7 +911,7 @@ var DICT = DATA.dict || {};
 var PROVIDERS = Array.isArray(DATA.providers) ? DATA.providers : [];
 var KEYSTATUS = DATA.providerKeys || {};
 var ENV = DATA.env || {};
-var APP = { tab: DATA.initialTab || 0, histQuery: '', dictQuery: '', capturing: null, reqSeq: 0, pending: {}, historyTotal: 0, searchEntries: null, searchTotal: 0, searchPending: false, searchRid: null, searchTimer: null, cmdOpen: false, cmdItems: [], cmdIndex: 0, settingsGroup: 'voice' };
+var APP = { tab: DATA.initialTab || 0, histQuery: '', dictQuery: '', capturing: null, reqSeq: 0, pending: {}, historyTotal: 0, searchEntries: null, searchTotal: 0, searchPending: false, searchRid: null, searchTimer: null, cmdOpen: false, cmdItems: [], cmdIndex: 0, settingsGroup: 'voice', permDismissed: false, permTimer: null };
 APP.historyTotal = (DATA.stats && DATA.stats.entries) || (DATA.history || []).length;
 var MOD_NAMES = { option: '⌥', command: '⌘', control: '⌃', shift: '⇧', none: '' };
 var MOD_LABELS = { option: 'Option', command: 'Command', control: 'Control', shift: 'Shift', none: '无' };
@@ -1425,6 +1451,39 @@ function renderHotkeys() {
   }
   renderHomeShortcuts();
 }
+function permissionText(mic) {
+  var map = { authorized: '已授权', denied: '已拒绝', restricted: '受限', notDetermined: '未请求', unknown: '未知' };
+  return map[mic] || '未知';
+}
+function renderPermissions() {
+  var ax = ENV.axTrusted === true;
+  var mic = ENV.micStatus || 'unknown';
+  var banner = $('#permission-banner');
+  if (banner) banner.hidden = ax || APP.permDismissed;
+  var axEl = $('#perm-ax-text');
+  if (axEl) { axEl.textContent = ax ? '已授权' : '需要授权'; axEl.className = 'unit ' + (ax ? 'ok' : 'warn'); }
+  var micEl = $('#perm-mic-text');
+  if (micEl) {
+    micEl.textContent = permissionText(mic);
+    micEl.className = 'unit ' + (mic === 'authorized' ? 'ok' : (mic === 'denied' || mic === 'restricted' ? 'warn' : ''));
+  }
+}
+window.permissionsUpdated = function (ax, mic) {
+  ENV.axTrusted = !!ax;
+  ENV.micStatus = mic || 'unknown';
+  renderPermissions();
+};
+function startPermissionPoll() {
+  if (APP.permTimer) clearInterval(APP.permTimer);
+  var tries = 0;
+  APP.permTimer = setInterval(function () {
+    tries++;
+    post({ action: 'checkPermissions' });
+    if (tries >= 30 || (ENV.axTrusted === true && ENV.micStatus === 'authorized')) {
+      clearInterval(APP.permTimer); APP.permTimer = null;
+    }
+  }, 2000);
+}
 function fillProviderEditor(name) {
   var p = ((CFG.providers || {})[name]) || {};
   var id = $('#s-provider-id'), base = $('#s-provider-base'), path = $('#s-provider-path'), model = $('#s-provider-model');
@@ -1481,6 +1540,7 @@ function renderSettings() {
   renderStatus();
   renderEnv();
   renderProviderStatus();
+  renderPermissions();
   var navAsr = $('#nav-asr');
   if (navAsr) navAsr.textContent = (asr.adapter || 'whisper') === 'whisper' ? '本地' : '云端';
   var navModel = $('#nav-model');
@@ -1808,6 +1868,10 @@ document.addEventListener('click', function (e) {
   if (act === 'open-shortcuts') { openShortcuts(); return; }
   if (act === 'close-shortcuts') { closeShortcuts(); return; }
   if (act === 'settings-group') { showSettingsGroup(btn.getAttribute('data-group') || 'voice'); return; }
+  if (act === 'request-ax') { post({ action: 'requestAX' }); startPermissionPoll(); return; }
+  if (act === 'request-mic') { post({ action: 'requestMic' }); startPermissionPoll(); return; }
+  if (act === 'check-permissions') { post({ action: 'checkPermissions' }); return; }
+  if (act === 'dismiss-permission') { APP.permDismissed = true; renderPermissions(); return; }
   if (act === 'new-provider') {
     var idEl = $('#s-provider-id'), baseEl = $('#s-provider-base'), pathEl = $('#s-provider-path'), modelEl = $('#s-provider-model');
     if (idEl) idEl.value = 'custom';
@@ -2093,6 +2157,9 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && APP.capturing) stopCapture();
   if (e.key === 'Escape' && $('#confirm').classList.contains('on')) closeConfirm();
   if (e.key === 'Escape' && $('#shortcuts').classList.contains('on')) closeShortcuts();
+});
+window.addEventListener('focus', function () {
+  if (!ENV.axTrusted || APP.tab === 3) post({ action: 'checkPermissions' });
 });
 window.addEventListener('beforeunload', function () {
   nativePost({ action: 'setCaptureMode', enabled: false });

@@ -140,13 +140,13 @@ const stats = {
 };
 
 const data = {
-  version: '6.1.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
+  version: '6.2.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
   stats, days, history: rawHistory, dict, cfg,
   providers,
   providerKeys: { 'ark-plan': true, deepseek: true, zai: true, minimax: true, 'mimo-plan': true },
   env: {
     node: 'v22.14.0', whisperBinExists: true, whisperModelExists: true,
-    ffmpegExists: true, configMode: '600', configExists: true, dictExists: true, plugins: []
+    ffmpegExists: true, configMode: '600', configExists: true, dictExists: true, axTrusted: true, micStatus: 'authorized', plugins: []
   }
 };
 
