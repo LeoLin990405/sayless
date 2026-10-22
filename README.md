@@ -87,7 +87,7 @@ v7 起不再把「按一下 → 走一条固定听写管线 → 粘贴」写死�
 }
 ```
 
-协议与扩展细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。一句话：**模型、数据、词库、pipeline、输出目的地都由你组合**——这也是 Sayless 与任何固定式听写产品的底层区别。
+协议与扩展细节见 [ARCHITECTURE.md](ARCHITECTURE.md)；长期记忆融合方案见 [docs/MEMORY_INTEGRATION.md](docs/MEMORY_INTEGRATION.md)。一句话：**模型、数据、词库、pipeline、输出目的地都由你组合**——这也是 Sayless 与任何固定式听写产品的底层区别。
 
 ## 快速开始
 
