@@ -140,7 +140,7 @@ const stats = {
 };
 
 const data = {
-  version: '6.3.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
+  version: '7.0.0', dataDir: '/Users/leo/.sayless', initialTab: 0,
   stats, days, history: rawHistory, dict, cfg,
   providers,
   providerKeys: { 'ark-plan': true, deepseek: true, zai: true, minimax: true, 'mimo-plan': true },

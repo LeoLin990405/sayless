@@ -1,11 +1,11 @@
-Sayless — 仅供学习研究的逆向工程项目（非商用）
+Sayless — 独立实现的本地优先语音引擎（非商用）
 
 Copyright (c) 2026 Zhongyue Lin (LeoLin990405)
 
 一、项目性质
 
-本项目是对 Typeless 应用进行逆向工程与交互分析后的学习性复现成果，
-采用干净房间（clean-room）方式独立实现，不包含原应用的任何代码、
+本项目是独立实现的本地优先语音引擎与客户端。v7 起核心采用自研
+Sayless Engine / Action Pipeline 架构；不包含任何第三方应用的代码、
 资源或数据。与 Typeless 原开发者无任何隶属、合作或授权关系。
 
 二、授权条款

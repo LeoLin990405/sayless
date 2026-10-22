@@ -1,5 +1,30 @@
 # Changelog
 
+## v7.0.0 (2026-10-22)
+
+**底层架构重构：从「菜单栏 App 每次 spawn 一次 CLI」改为「长驻 Sayless Engine + 可编程 Action/Pipeline」。**
+
+### Engine
+
+- 新增 `sayless engine --stdio`：长驻 Node 进程，stdin/stdout JSONL 协议；一次启动复用配置、供应商、插件、词典、历史。
+- 菜单栏 App 新增 `EngineClient`：录音结束后把 WAV + action 发给 Engine，接收 `accepted / stage / done / error` 事件；不再解析 CLI 的 `RESULT_JSON`，也不再每次任务启动 Node。
+- Engine stdout 只允许协议 JSON；插件/库的 `console.log` 统一重定向到 stderr，避免污染客户端解析。
+- 取消/退出会终止 Engine；下一次任务自动重启。
+
+### Action / Pipeline
+
+- 新增 `config.actions`：action = 有序 stage（`asr` / `dict` / `llm` / `translate` / `ask`）+ output adapter（`paste` / `clipboard` / `stdout` / `file` / `none`）。
+- 内置 `dictate` / `translate` / `ask`；用户可在 config.json 新增任意 action，Engine 无需改代码。
+- 新增 `sayless actions`、`sayless action <id>`；`sayless engine` 供 App/脚本使用。
+- 旧 CLI（`run` / `transcribe` / `polish` / `translate` / `ask`）保持兼容。
+
+### Architecture / Docs
+
+- 新增 [ARCHITECTURE.md](ARCHITECTURE.md)：进程拓扑、action/stage 语义、JSONL 协议、分层与扩展点。
+- README 重构为独立的 Sayless Engine 架构说明；LICENSE/App 头注释移除“逆向复现”定位，明确独立实现与非商用。
+- App 版本 7.0.0；Engine 协议加入引擎测试（内置 action、自定义纯文本 action、未知 action 错误）。
+- 79 个 Node 集成测试全部通过；Swift typecheck/build 通过。
+
 ## v6.3.0 (2026-10-22)
 
 定位并修复更新后“点了授权仍失效”的真实原因。

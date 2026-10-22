@@ -16,6 +16,9 @@
 //   sayless learn "<原文>" "<改稿>"        智能 diff 生成词条；--last 对比上一条；--mine 挖掘高频模式
 //   sayless history [-n 20] [--json] [--search q] [--delete n|ts] [--clear --force] [--export file]
 //   sayless stats [--json]                听写数据统计
+//   sayless engine --stdio                长驻 JSON 行引擎（菜单栏 App / 客户端用）
+//   sayless actions                        列出可编程 actions
+//   sayless action <id> [wav]              直接执行一个 action
 //   sayless plugin                        已加载插件及钩子
 //   sayless doctor [--offline] [--json]   体检：ASR/链路/供应商分组实测/录音设备
 // 配置: ~/.sayless/config.json；providers 注册各模型供应商，llm/translate/ask 各自选 provider+model。
@@ -30,7 +33,7 @@ import { pathToFileURL } from 'node:url';
 const [nmaj] = process.versions.node.split('.').map(Number);
 if (nmaj < 18) { console.error(`✗ sayless 需要 Node 18+（当前 ${process.versions.node}）：brew install node 或升级`); process.exit(1); }
 
-const VERSION = '6.3.0';
+const VERSION = '7.0.0';
 const DIR = process.env.SAYLESS_DIR ? path.resolve(process.env.SAYLESS_DIR) : path.join(os.homedir(), '.sayless');
 const CFG = path.join(DIR, 'config.json');
 const DICT = path.join(DIR, 'dictionary.json');
@@ -100,6 +103,12 @@ const DEFAULT_CFG = {
     cloud:  { asr: 'ark-ws', llm: { provider: 'ark-plan', model: 'doubao-seed-2-1-pro-260915' }, cross: true }
   },
   activeWorkflow: 'fast',
+  // v7 可编程语音引擎：action = 有序 stage 组合；output 只是客户端适配器之一
+  actions: {
+    dictate: { label: '听写', pipeline: ['asr', 'dict', 'llm', 'dict'], output: 'paste' },
+    translate: { label: '翻译', pipeline: ['asr', 'dict', 'translate', 'dict'], output: 'paste' },
+    ask: { label: '问答', pipeline: ['asr', 'dict', 'ask', 'dict'], output: 'paste' }
+  },
   hotkeys: {
     dictate: { key: 49, modifier: 'option', label: 'Space' },
     translate: { key: 17, modifier: 'option', label: 'T' },
@@ -291,6 +300,7 @@ function ensureInit() {
   if (!isObj(cfg.ask)) cfg.ask = clone(DEFAULT_CFG.ask), dirty = true;
   if (!isObj(cfg.cross)) cfg.cross = clone(DEFAULT_CFG.cross), dirty = true;
   if (!isObj(cfg.workflows)) cfg.workflows = clone(DEFAULT_CFG.workflows), dirty = true;
+  if (!isObj(cfg.actions)) cfg.actions = clone(DEFAULT_CFG.actions), dirty = true;
   // 清掉旧版本可能误写进 config 的 _workflow；本次 --workflow 只在内存里生效。
   if (Object.prototype.hasOwnProperty.call(cfg, '_workflow')) { delete cfg._workflow; dirty = true; }
   const wi = flagArgv.indexOf('--workflow');
@@ -306,6 +316,7 @@ function ensureInit() {
 // 目录：~/.sayless/plugins/*.mjs，按文件名排序加载。每个插件导出（全部可选）：
 //   export const name                     展示名
 //   export const providers = {id:{...}}   注册自定义供应商（不覆盖同名用户配置）
+//   export const actions = {id:{...}}     注册自定义 action/pipeline（不覆盖同名用户配置）
 //   export async function onTranscript(t, ctx)  ASR+词典之后、LLM 之前；返回新文本或 undefined
 //   export async function onPolish(t, ctx)      结果定稿前（历史记录之前）
 //   export async function onInsert(t, ctx)      粘贴/输出前最后一道
@@ -323,7 +334,7 @@ async function loadPlugins() {
     try {
       const mod = await import(pathToFileURL(path.join(dir, f)).href);
       pluginsCache.push({ file: f, ...mod });
-      const hooks = ['providers', 'workflows', 'onTranscript', 'onPolish', 'onInsert'].filter(k => mod[k] != null);
+      const hooks = ['providers', 'workflows', 'actions', 'onTranscript', 'onPolish', 'onInsert'].filter(k => mod[k] != null);
       pluginLog.push(`插件 ${f}：${hooks.join(', ') || '（无导出钩子）'}`);
     } catch (e) {
       pluginLog.push(`插件 ${f} 加载失败：${e.message}`);
@@ -342,6 +353,10 @@ async function activatePlugins(cfg) {
     for (const [id, prov] of Object.entries(p.providers || {})) {
       cfg.providers = cfg.providers || {};
       if (!cfg.providers[id]) cfg.providers[id] = prov;
+    }
+    for (const [id, action] of Object.entries(p.actions || {})) {
+      cfg.actions = cfg.actions || {};
+      if (!cfg.actions[id]) cfg.actions[id] = action;
     }
     for (const [id, wf] of Object.entries(p.workflows || {})) {
       cfg.workflows = cfg.workflows || {};
@@ -1258,7 +1273,7 @@ const KNOWN_FLAGS = new Set([
   '--sec', '-o', '--to', '--translate', '--provider', '--model', '--workflow', '--app', '-n',
   '--delete', '--search', '--export', '--min-count', '--keep', '--raw', '--no-insert', '--dry-run',
   '--ask', '--say', '--cross', '--force', '--json', '--offline', '--no-search', '--clear',
-  '--apply', '--mine', '--last', '--help', '-h', '--version', '-v'
+  '--apply', '--mine', '--last', '--help', '-h', '--version', '-v', '--stdio'
 ]);
 const unknownFlags = [...new Set(headRest.filter(a => a.startsWith('-') && a !== '-' && !KNOWN_FLAGS.has(a)))];
 if (unknownFlags.length) console.error(`· 未知参数（已忽略）：${unknownFlags.join(' ')}`);
@@ -1333,6 +1348,28 @@ try {
     process.exitCode = cmd ? 0 : 2;
   } else if (cmd === 'version' || cmd === '--version' || cmd === '-v') {
     console.log(`sayless ${VERSION} · node ${process.version}`);
+  } else if (cmd === 'engine') {
+    await engineServe();
+  } else if (cmd === 'actions') {
+    const cfg = ensureInit();
+    const table = actionTable(cfg);
+    for (const [id, a] of Object.entries(table)) {
+      console.log(`${id}\t${a.label}\t→ ${a.pipeline.join(' → ')}\toutput=${a.output}`);
+    }
+  } else if (cmd === 'action') {
+    const cfg = ensureInit();
+    const pos = positional();
+    const id = pos[0];
+    if (!id) fail('用法: sayless action <id> [wav] [--app <name>] [--force]', 2);
+    const wav = pos[1] || (has('--say') ? TMP_WAV : null);
+    if (has('--say')) await rec(numberArg('--sec', 0), TMP_WAV, cfg);
+    const res = await executeAction(cfg, id, {
+      wav, app: arg('--app') || null, force: has('--force'),
+      provider: arg('--provider'), model: arg('--model'), cross: has('--cross')
+    });
+    if (!['paste', 'clipboard', 'stdout'].includes(String((cfg.actions || {})[id]?.output || ''))) {
+      console.log(res.out);
+    }
   } else if (cmd === 'init') {
     const cfg = ensureInit();
     const providers = Object.keys(cfg.providers || {}).length;
@@ -1864,4 +1901,210 @@ async function finishPipeline(wavPath, {
   console.error(`RESULT_JSON:${JSON.stringify({ out: String(out), raw: String(rawText), mode, rec: entry.rec, ts: entry.ts, inserted })}`);
   if (insertError) throw insertError;
   return { raw: rawText, out: String(out), mode, rec: recFile, inserted, entry };
+}
+
+// ============================================================
+// v7 Sayless Engine：Action / Pipeline + 长驻 JSON 行协议
+// 菜单栏 App、CLI、hub 都只是客户端；核心不再绑定“听写/翻译/问答”三种硬编码模式。
+// ============================================================
+function actionTable(cfg) {
+  const src = isObj(cfg.actions) ? cfg.actions : {};
+  const out = {};
+  for (const [id, raw] of Object.entries(src)) {
+    if (!isObj(raw)) continue;
+    const pipeline = Array.isArray(raw.pipeline)
+      ? raw.pipeline.map(s => String(s).trim()).filter(Boolean)
+      : typeof raw.pipeline === 'string'
+        ? raw.pipeline.split(/[,>→]+/).map(s => s.trim()).filter(Boolean)
+        : ['asr', 'dict', 'llm', 'dict'];
+    out[id] = {
+      id,
+      label: String(raw.label || id),
+      pipeline,
+      output: String(raw.output || 'none'),
+      to: raw.to ? String(raw.to) : null,
+      mode: raw.mode ? String(raw.mode) : null,
+      provider: raw.provider || null,
+      model: raw.model || null,
+      cross: raw.cross,
+      noSearch: raw.noSearch,
+      file: raw.file ? expandHome(String(raw.file)) : null,
+      keep: Number(raw.keep) > 0 ? Number(raw.keep) : null
+    };
+  }
+  return out;
+}
+
+function archiveRecording(wavPath, cfg, keepOverride = null) {
+  if (!wavPath || !fs.existsSync(wavPath)) return null;
+  try {
+    fs.mkdirSync(REC_DIR, { recursive: true, mode: 0o700 });
+    try { fs.chmodSync(REC_DIR, 0o700); } catch { /* ignore */ }
+    const base = new Date().toISOString().replace(/[:.]/g, '-');
+    let recFile = path.join(REC_DIR, `${base}.wav`);
+    let n = 1;
+    while (fs.existsSync(recFile)) recFile = path.join(REC_DIR, `${base}-${n++}.wav`);
+    fs.copyFileSync(wavPath, recFile);
+    try { fs.chmodSync(recFile, 0o600); } catch { /* ignore */ }
+    const keep = Math.max(1, keepOverride || Number(cfg.recordings?.keep) || 200);
+    const old = fs.readdirSync(REC_DIR).filter(f => f.endsWith('.wav'))
+      .map(f => ({ f, t: fs.statSync(path.join(REC_DIR, f)).mtimeMs })).sort((a, b) => b.t - a.t);
+    for (const x of old.slice(keep)) fs.rmSync(path.join(REC_DIR, x.f), { force: true });
+    return path.basename(recFile);
+  } catch (e) {
+    warn(`录音归档失败（不影响结果）：${e.message}`);
+    return null;
+  }
+}
+
+function deliverActionOutput(out, action, cfg) {
+  const output = String(action.output || 'none');
+  if (output === 'paste') return { inserted: insertText(out, cfg), output };
+  if (output === 'clipboard') {
+    const r = spawnSync('/usr/bin/pbcopy', [], { input: out });
+    if (r.status !== 0) throw new Error('复制到剪贴板失败（pbcopy）');
+    return { inserted: false, output };
+  }
+  if (output === 'stdout') { console.log(out); return { inserted: false, output }; }
+  if (output === 'file') {
+    if (!action.file) throw new Error('action.output=file 但缺少 action.file');
+    fs.mkdirSync(path.dirname(action.file), { recursive: true });
+    writeFileAtomic(action.file, out, 0o600);
+    return { inserted: false, output };
+  }
+  if (output !== 'none') throw new Error(`未知 action.output：${output}`);
+  return { inserted: false, output };
+}
+
+/**
+ * 执行一个可编程 action。
+ * stages: asr → dict → llm → translate → ask（顺序由 action.pipeline 决定）
+ * output: paste | clipboard | stdout | file | none
+ */
+async function executeAction(cfg, actionId, {
+  wav = null, text = null, app = null, force = false, output = null,
+  provider = null, model = null, cross = null, noSearch = null, onStage = null
+} = {}) {
+  const table = actionTable(cfg);
+  const action = table[actionId];
+  if (!action) throw new Error(`未知 action：${actionId}（可用：${Object.keys(table).join(', ')}）`);
+  const t0 = Date.now();
+  await activatePlugins(cfg);
+  const target = action.to || cfg.translate?.to || 'en';
+  const mode = action.mode || (action.pipeline.includes('ask') ? 'ask'
+    : action.pipeline.includes('translate') ? `translate:${target}` : 'dictate');
+  const ctx = { mode, app, wavPath: wav, cfg, action };
+  let rawText = text != null ? String(text) : '';
+  let out = rawText;
+  let asrMs = 0, llmMs = 0, sawAsr = false;
+  const timings = {};
+  const totalStages = action.pipeline.length;
+  for (let i = 0; i < action.pipeline.length; i++) {
+    const stage = action.pipeline[i];
+    if (onStage) onStage(stage, i + 1, totalStages);
+    const ts = Date.now();
+    if (stage === 'asr') {
+      if (!wav) throw new Error(`action ${actionId} 的 pipeline 含 asr，但请求没有音频`);
+      const wavPath = path.resolve(wav);
+      if (!fs.existsSync(wavPath)) throw new Error(`音频不存在：${wavPath}`);
+      out = await asr(wavPath, cfg);
+      asrMs += Date.now() - ts;
+      rawText = out;
+      sawAsr = true;
+      out = (await runHook('onTranscript', out, ctx)) || out;
+      const speech = String(out).replace(/[。，,.！!？?、；;：:\s()（）【】\[\]〔〕]/g, '');
+      if (!String(out).trim()) throw new Error('语音识别结果为空（纯静音或识别失败），已跳过');
+      if (speech.length <= 1 && !force) throw new Error('未识别到语音内容（录太短或纯静音），已跳过');
+    } else if (stage === 'dict') {
+      out = applyDict(out, app);
+    } else if (stage === 'llm') {
+      out = (await polish(out, {
+        provider, model, cross: cross === null ? action.cross : cross, app, cfg
+      })).text;
+      llmMs += Date.now() - ts;
+    } else if (stage === 'translate') {
+      out = await translateText(out, target, { provider, model, cross: !!cross, app, cfg });
+      llmMs += Date.now() - ts;
+    } else if (stage === 'ask') {
+      out = await askAnswer(out, {
+        provider, model, noSearch: noSearch === null ? !!action.noSearch : noSearch, app, cfg
+      });
+      llmMs += Date.now() - ts;
+    } else {
+      throw new Error(`未知 pipeline stage：${stage}`);
+    }
+    timings[stage] = (timings[stage] || 0) + (Date.now() - ts);
+  }
+  out = await runHook('onPolish', String(out), ctx);
+  out = await runHook('onInsert', out, ctx);
+  if (!String(out).trim()) throw new Error('管线输出为空（插件可能返回了空文本）');
+  const rec = archiveRecording(wav, cfg, action.keep);
+  const { inserted, output: usedOutput } = deliverActionOutput(String(out), { ...action, output: output || action.output }, cfg);
+  timings.total = Date.now() - t0;
+  const entry = {
+    ts: new Date().toISOString(), mode, app: app || undefined,
+    raw: String(rawText).slice(0, 500), out: String(out).slice(0, 1000),
+    chars: [...String(out)].length, rawChars: [...String(rawText)].length,
+    inserted, rec: rec || undefined, timings
+  };
+  try { appendHistory(entry); } catch (e) { warn(`历史落盘失败：${e.message}`); }
+  if (optsLogPipeline()) {
+    console.error(`· action=${actionId} stages=${action.pipeline.join('→')} output=${usedOutput}`);
+    console.error(`· 耗时 total ${timings.total}ms ${JSON.stringify(timings)}`);
+  }
+  return { action: actionId, out: String(out), raw: String(rawText), mode, rec, ts: entry.ts, timings, inserted, entry };
+}
+
+function optsLogPipeline() {
+  // engine 自己会发事件；CLI 调试保留一行摘要
+  return process.env.SAYLESS_ENGINE_QUIET !== '1';
+}
+
+async function engineServe() {
+  // stdout 只允许 JSON 行协议；插件/库里的 console.log 一律转到 stderr，
+  // 否则会污染客户端解析。
+  console.log = (...args) => console.error(...args);
+  const send = (obj) => {
+    try { process.stdout.write(JSON.stringify(obj) + '\n'); } catch { /* client gone */ }
+  };
+  const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  process.stderr.write(`· sayless engine ${VERSION} ready\n`);
+  const runJob = async (req) => {
+    const id = String(req.id || '');
+    const t0 = Date.now();
+    try {
+      const cfg = ensureInit();
+      const actionId = String(req.action || 'dictate');
+      if (!actionTable(cfg)[actionId]) throw new Error(`未知 action：${actionId}`);
+      send({ id, event: 'accepted', action: actionId, at: new Date().toISOString() });
+      const result = await executeAction(cfg, actionId, {
+        wav: req.wav || null,
+        text: req.text != null ? String(req.text) : null,
+        app: req.app || null,
+        force: !!req.force,
+        output: 'none',
+        provider: req.provider || null,
+        model: req.model || null,
+        cross: req.cross === undefined ? null : !!req.cross,
+        noSearch: req.noSearch === undefined ? null : !!req.noSearch,
+        onStage: (stage, index, total) => send({ id, event: 'stage', stage, index, total })
+      });
+      send({ id, event: 'done', ok: true, result, elapsedMs: Date.now() - t0 });
+    } catch (e) {
+      send({ id, event: 'error', ok: false, error: String(e.message || e), code: e.exitCode || 1 });
+    }
+  };
+  rl.on('line', (line) => {
+    const raw = String(line || '').trim();
+    if (!raw) return;
+    let req;
+    try { req = JSON.parse(raw); } catch {
+      send({ id: null, event: 'error', ok: false, error: 'invalid JSON request' });
+      return;
+    }
+    if (!req || typeof req !== 'object') return;
+    if (req.op === 'ping') { send({ id: req.id || null, event: 'pong', version: VERSION }); return; }
+    void runJob(req);
+  });
+  await new Promise((resolve) => rl.on('close', resolve));
 }

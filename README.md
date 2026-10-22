@@ -1,10 +1,10 @@
 # Sayless
 
-> ⚠️ **声明**：本项目最初以 Typeless 作为产品研究参照，但 **v6.0 起 UI 已完全重构为独立的 Sayless Paper 视觉系统**，不再复刻其界面；仅作学习研究之用，**切勿用于任何商业用途**（详见 [LICENSE](LICENSE)）。与原开发者无任何隶属或授权关系。
+> **Sayless 是独立实现的本地优先语音引擎**：v7 起核心为长驻 **Sayless Engine** + 可编程 **Action / Pipeline**，菜单栏 App、CLI、hub 都只是客户端。仅作学习研究，**切勿商用**（详见 [LICENSE](LICENSE)）。
 
-**本地优先的中文语音听写 / 翻译 / 问答管线**——录音 → 语音识别 → 词语库 → 多模型润色 → 粘贴进焦点应用，配上一个独立的「纸面工作台」菜单栏 App。当前版本 **v6.3.0**（见 [CHANGELOG](CHANGELOG.md)）。
+**本地优先的中文语音听写 / 翻译 / 问答 / 可编程语音动作引擎**——录音 → ASR → 词语库 → 多模型润色 → 自定义 action 输出，配一个「纸面工作台」菜单栏 App。当前版本 **v7.0.0**（见 [CHANGELOG](CHANGELOG.md)）。
 
-干净的自研实现（不含任何第三方听写应用代码），模型走**你自己的套餐**，词语库和听写历史全部本地。
+干净的自研实现（不含任何第三方听写应用代码），模型走**你自己的套餐**，词语库和听写历史全部本地；底层不再围绕「听写/翻译/问答」三种硬编码模式设计，而是由 action pipeline 组合。
 
 ```
 麦克风 ──▶ ASR（本地 whisper.cpp / MiMo 云端）──▶ 词语库确定性替换
@@ -19,7 +19,7 @@
 </p>
 <p align="center">
   <img src="docs/screenshots/menubar.png" width="300" alt="菜单栏弹出面板"><br/>
-  <sub>菜单栏：自定义 Paper 弹出面板（最近条目 / 三种模式 / 快捷入口）</sub>
+  <sub>菜单栏：自定义 Paper 弹出面板（最近条目 / 三个内置动作 / 快捷入口）</sub>
 </p>
 
 | 首页：刊头 / 印章 / 52 周书写记录 | 历史：纸面台账 / 搜索 / 回放 / 重转写 |
@@ -39,6 +39,7 @@
 ## 特性一览
 
 - **⌥Space 说话即打字**：菜单栏常驻，按住热键说话，松手文本自动润色并粘贴进当前焦点应用；⌥T 说话即翻译、⌥Q 说话即联网问答，键位可在设置页录制修改
+- **可编程引擎**：`sayless engine --stdio` 长驻进程 + JSON 行协议；action = 有序 stage（`asr → dict → llm → translate → ask`），输出适配 `paste / clipboard / stdout / file / none`；用户可在 `config.json` 里新增任意 action，CLI/App 共用同一引擎
 - **本地优先**：ASR 默认本地 whisper.cpp（Metal 加速，8s 语音约 1s 转完），语音不出机器；配置、词库、历史、录音归档都是本机 0600
 - **多模型交叉投票**：5 家模型并行出稿 → 字符二元组相似度聚类 → 多数共识取胜（取簇内 medoid），全分歧时仲裁模型裁决，实战全票率极高
 - **个性化词语库**：专有名词保护、确定性替换、风格规则、按前台应用自动叠加分应用词层；hub 里可增删改
@@ -51,39 +52,42 @@
 
 ```mermaid
 flowchart LR
-    Mic[麦克风] --> Cap[录音纸片<br/>AVAudioEngine 直录]
-    Cap --> ASR{ASR 适配器}
+    Mic[麦克风] --> Rec[App 录音<br/>AVAudioEngine]
+    Rec -->|WAV| Eng[Sayless Engine<br/>长驻 JSONL]
+    CLI[CLI / 脚本] -->|JSONL 或直连| Eng
+    Hub[Hub / 菜单栏] -.数据查询.-> Eng
+    Eng --> ASR{ASR 适配器}
     ASR -->|whisper 默认| W["whisper.cpp（本地·离线）"]
     ASR -->|可选云端| C[MiMo / 方舟 / OpenAI 兼容]
-    W --> Dict[词语库确定性替换<br/>热词 + 分应用层]
-    C --> Dict
-    Dict --> LLM{润色策略}
-    LLM -->|fast| S[单模型直出]
-    LLM -->|quality| X[多模型交叉投票 + 仲裁]
-    S --> D2[词语库兜底]
-    X --> D2
-    D2 --> Paste[剪贴板 + ⌘V<br/>进焦点应用]
-    Paste --> Hist[(history.jsonl<br/>洞察 + 热力图)]
+    W --> Pipe[Action Pipeline]
+    C --> Pipe
+    Pipe --> D[词语库 / 热词 / 分应用层]
+    Pipe --> LLM[模型供应商 + 交叉投票]
+    Pipe --> Out[输出适配器<br/>paste / clipboard / file / stdout]
+    Out --> Hist[(history.jsonl + recordings)]
 ```
 
-## 与 Typeless 的差异
+## 架构：Sayless Engine + Action Pipeline
 
-本项目最初以 Typeless 2.8.1 作为产品研究参照，但在 **v6.0.0** 中 UI 已彻底重构为独立的「Sayless Paper」视觉系统：暖纸、墨色、朱砂印章、顶部刊头、纸面台账、分类导航设置和自定义菜单栏弹出面板。代码为**完全独立的干净实现**（不含其任何代码与资源）。差异（对比基于 Typeless 2.8.1 公开行为与本机观察，2026-10）：
+v7 起不再把「按一下 → 走一条固定听写管线 → 粘贴」写死在 App 里。核心是一条**长驻引擎进程**，所有端都是客户端：
 
-| 维度 | Typeless | Sayless |
-|---|---|---|
-| 定位 | 商业订阅产品 | 逆向学习项目（非商用，软件免费） |
-| 模型费用 | 订阅费内含 | 走**你自己的套餐**（方舟 / 智谱 / DeepSeek / Kimi / MiMo…），花多少看得到 |
-| 语音识别 | 云端 ASR，语音上传服务方 | 默认**本地 whisper.cpp 离线**，语音不出机器；可切 MiMo / 方舟云端 |
-| 质量机制 | 单一管线 + 服务端质量网关 | 客户端 **5 家模型交叉投票 + 仲裁**，每条听写都是多数派共识 |
-| 个性化 | 自定义词表 | 确定性替换 + 风格规则 + **按前台应用分层** + `learn` 自动学习闭环 |
-| 扩展性 | 闭源，不可扩展 | **插件 API**：3 个管线钩子 + 自定义供应商 + 自定义工作流 |
-| 数据归属 | 听写历史存于服务方 | 全部本地：历史 / 词库 / 反馈都在 `~/.sayless/`，随时导出删除 |
-| 透明度 | 闭源 | 源码可审计；每个模型端点可 `sayless doctor` 实测连通与鉴权 |
-| 交互形态 | 浮条 + hub 面板 | **Sayless Paper**：纸面录音条 + 顶部刊头 hub + 自定义菜单栏弹出面板（v6 起完全独立设计） |
-| 平台 | macOS | macOS，CLI 与菜单栏 App 可完全独立使用 |
+- **Engine**：Node 进程，stdin/stdout JSON 行协议；一次启动，复用配置、供应商、词典、历史。
+- **Action**：一段可配置的 pipeline，例如 `["asr","dict","llm","dict"]`；内置 `dictate / translate / ask`，用户可加 `note`、`clean`、`translateOnly` 等。
+- **Stage**：`asr` / `dict` / `llm` / `translate` / `ask`，按 action 里的顺序执行；插件钩子仍可接管 `onTranscript` / `onPolish` / `onInsert`。
+- **Output adapter**：`paste`、`clipboard`、`stdout`、`file`、`none`；Engine 自身默认 `none`，由 App 负责粘贴，CLI 可选任意适配器。
+- **Clients**：菜单栏 App（录音 + 权限 + 粘贴）、CLI（脚本/自动化）、hub（查看/管理）、插件（providers/workflows/actions）。
 
-一句话：**Typeless 卖的是省心，Sayless 给的是控制权**——模型、数据、词库、管线每一环都握在自己手里。再次强调：本项目仅作学习研究之用，**切勿商用**。
+```jsonc
+// ~/.sayless/config.json
+"actions": {
+  "dictate":   { "label": "听写", "pipeline": ["asr","dict","llm","dict"], "output": "paste" },
+  "translate": { "label": "翻译", "pipeline": ["asr","dict","translate","dict"], "output": "paste" },
+  "ask":       { "label": "问答", "pipeline": ["asr","dict","ask","dict"], "output": "paste" },
+  "note":      { "label": "语音笔记", "pipeline": ["asr","dict","llm"], "output": "file", "file": "~/Notes/voice.md" }
+}
+```
+
+协议与扩展细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。一句话：**模型、数据、词库、pipeline、输出目的地都由你组合**——这也是 Sayless 与任何固定式听写产品的底层区别。
 
 ## 快速开始
 
@@ -139,7 +143,10 @@ SAYLESS_SIGN=adhoc BUILD_ONLY=1 ./build.sh   # 跳过钥匙串里的持久证书
 | `sayless polish "<text>"` | 只润色。`--dry-run` 只过词语库，`--cross` 强制投票；文本传 `-` 从 stdin 读 |
 | `sayless translate "<text>" --to ja` | 翻译，10 语种；`--say` 先录音 |
 | `sayless ask "<问题>"` | Bing CN + DuckDuckGo 检索 → 带 [n] 引用的回答；`--say` 先录音，`--no-search` 跳过联网 |
-| `sayless transcribe <wav>` | 转写→润色→粘贴，App 外壳复用此命令；`--force` 绕过短语音守卫 |
+| `sayless engine --stdio` | 长驻引擎，JSON 行协议；菜单栏 App 使用此通道，一次启动复用配置/供应商/词典 |
+| `sayless actions` | 列出当前 action 及其 stage pipeline / output |
+| `sayless action <id> [wav]` | 直接执行一个 action；`--say` 先录音，`--app` 指定分应用词层 |
+| `sayless transcribe <wav>` | 兼容旧客户端：转写→润色→粘贴；`--force` 绕过短语音守卫（App 已改用 engine） |
 | `sayless insert "<text>"` | 手动粘贴任意文本进焦点应用（默认 1.6s 后恢复剪贴板） |
 | `sayless dict add\|del\|add-hot\|del-hot\|import\|stats\|export\|validate` | 词语库管理；`import` 支持每行 `a=>b`、纯热词，或 `dict export` 产出的 JSON（自动合并）；`app-add-hot` / `app-add-replace` 管理分应用词层 |
 | `sayless learn "<原文>" "<改稿>"` | LCS 智能 diff 自动生成替换规则；`--last` 对比上一条；`--mine [--apply]` 挖掘并回写高频修正；`--dry-run` 不落盘 |
@@ -268,7 +275,13 @@ flowchart LR
                  "translate": { "key": 17, "modifier": "option", "label": "T" },
                  "ask": { "key": 12, "modifier": "option", "label": "Q" } },
   "workflows": { "fast": {}, "quality": { "cross": true }, "cloud": { "cross": true } },
-  "activeWorkflow": "fast"
+  "activeWorkflow": "fast",
+  // v7 可编程动作；pipeline 顺序执行，output 是客户端输出适配器
+  "actions": {
+    "dictate":   { "pipeline": ["asr","dict","llm","dict"], "output": "paste" },
+    "translate": { "pipeline": ["asr","dict","translate","dict"], "output": "paste" },
+    "ask":       { "pipeline": ["asr","dict","ask","dict"], "output": "paste" }
+  }
 }
 ```
 
@@ -279,7 +292,7 @@ flowchart LR
 ## 开发与测试
 
 ```sh
-npm test                     # 76 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
+npm test                     # 79 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
 npm run check                # node --check + 完整测试
 BUILD_ONLY=1 ./app/build.sh  # 只编译打包 App（不装 /Applications、不启动）
 node tools/gen-hub-demo.mjs /tmp/hub-demo  # Chrome headless 渲染 hub 四页截图 + DOM js-error 检查

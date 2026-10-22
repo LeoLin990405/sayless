@@ -30,7 +30,7 @@ const CHROME = findChrome();
 
 function demoData() {
   return {
-    version: '6.3.0',
+    version: '7.0.0',
     dataDir: '/tmp/sayless-demo',
     initialTab: 0,
     stats: {
@@ -116,7 +116,7 @@ test('hub 空配置（无 config/hotkeys/providers）也能正常渲染', { skip
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sayless-hub-empty-'));
   try {
     const empty = {
-      version: '6.3.0', dataDir: '/tmp/fresh', initialTab: 0,
+      version: '7.0.0', dataDir: '/tmp/fresh', initialTab: 0,
       stats: {}, days: [], history: [],
       dict: { replacements: [], hotwords: [], styleRules: [], apps: {} },
       cfg: {}, providers: [], providerKeys: {}, env: { configExists: false, dictExists: false }

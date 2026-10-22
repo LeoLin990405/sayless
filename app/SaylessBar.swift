@@ -1,5 +1,5 @@
-// SaylessBar v6.3 — Typeless 式 UI：菜单栏 + 录音胶囊浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
-// 设计：暗色 HUD 胶囊 440×52 底部居中；录音=实时 15 根电平条；处理=Thinking；完成=✓+文本预览自隐。
+// SaylessBar v7 — Sayless Engine 客户端：菜单栏 + 录音纸片浮窗 + 数据驱动 hub（首页/历史/词典/设置）。
+// 设计：Sayless Paper 录音纸片 420×64 底部居中；处理=Thinking；完成=文本预览自隐。
 import AppKit
 import Carbon.HIToolbox
 import AVFoundation
@@ -368,7 +368,7 @@ final class CapsulePanel {
 
 
 // ---------- 共享路径 / 工具 ----------
-let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "6.3.0"
+let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "7.0.0"
 let functionKeyCodes: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111] // F1-F12
 let saylessConfigFile = saylessDataDir + "/config.json"
 let saylessDictFile = saylessDataDir + "/dictionary.json"
@@ -1868,6 +1868,198 @@ final class MenuBarPopover: NSObject {
     }
 }
 
+
+// ---------- v7 长驻 Sayless Engine 客户端 ----------
+struct EngineResult {
+    let action: String
+    let out: String
+    let raw: String
+    let mode: String
+    let ts: String
+    let rec: String?
+    init?(_ o: [String: Any]) {
+        guard let out = o["out"] as? String else { return nil }
+        self.action = (o["action"] as? String) ?? ""
+        self.out = out
+        self.raw = (o["raw"] as? String) ?? ""
+        self.mode = (o["mode"] as? String) ?? ""
+        self.ts = (o["ts"] as? String) ?? ""
+        self.rec = o["rec"] as? String
+    }
+}
+
+final class EngineClient {
+    private let environment: [String: String]
+    private let lock = NSLock()
+    private var process: Process?
+    private var stdinHandle: FileHandle?
+    private var lineBuffer = ""
+    private var pending: [String: (Result<EngineResult, Error>) -> Void] = [:]
+    private var timeouts: [String: DispatchWorkItem] = [:]
+    private var generation = 0
+
+    init(environment: [String: String]) { self.environment = environment }
+
+    deinit { shutdown() }
+
+    private func start() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if process?.isRunning == true { return true }
+        guard let cli = saylessCLIPath(), let node = whichTool("node") else { return false }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: node)
+        p.arguments = [cli, "engine", "--stdio"]
+        var env = environment
+        env["SAYLESS_ENGINE_QUIET"] = "1"
+        p.environment = env
+        let input = Pipe()
+        let output = Pipe()
+        p.standardInput = input
+        p.standardOutput = output
+        p.standardError = FileHandle.nullDevice
+        output.fileHandleForReading.readabilityHandler = { [weak self] h in
+            let data = h.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            self?.consume(text)
+        }
+        p.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async { self?.handleExit() }
+        }
+        do { try p.run() } catch {
+            logLine("engine start failed: \(error.localizedDescription)")
+            return false
+        }
+        generation += 1
+        let myGeneration = generation
+        process = p
+        stdinHandle = input.fileHandleForWriting
+        logLine("engine started pid=\(p.processIdentifier) gen=\(myGeneration)")
+        return true
+    }
+
+    private func consume(_ text: String) {
+        let lines: [String]
+        lock.lock()
+        lineBuffer += text
+        lines = lineBuffer.components(separatedBy: "\n")
+        lineBuffer = lines.last ?? ""
+        lock.unlock()
+        for line in lines.dropLast() {
+            let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty, let data = raw.data(using: .utf8),
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
+            handleEvent(obj)
+        }
+    }
+
+    private func handleEvent(_ obj: [String: Any]) {
+        guard let type = obj["event"] as? String else { return }
+        guard let id = obj["id"] as? String, !id.isEmpty else { return }
+        if type == "stage" {
+            if let stage = obj["stage"] as? String { logLine("engine stage \(stage)") }
+            return
+        }
+        if type == "done" {
+            guard let resultObj = obj["result"] as? [String: Any], let result = EngineResult(resultObj) else {
+                finish(id, .failure(NSError(domain: "SaylessEngine", code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "engine 返回结果格式不完整"])))
+                return
+            }
+            finish(id, .success(result))
+        } else if type == "error" {
+            let msg = (obj["error"] as? String) ?? "engine 执行失败"
+            finish(id, .failure(NSError(domain: "SaylessEngine", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: msg])))
+        }
+    }
+
+    private func finish(_ id: String, _ result: Result<EngineResult, Error>) {
+        lock.lock()
+        let completion = pending.removeValue(forKey: id)
+        let timer = timeouts.removeValue(forKey: id)
+        lock.unlock()
+        timer?.cancel()
+        completion?(result)
+    }
+
+    func run(action: String, wav: String, app: String, force: Bool,
+             completion: @escaping (Result<EngineResult, Error>) -> Void) {
+        guard start() else {
+            completion(.failure(NSError(domain: "SaylessEngine", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "无法启动 Sayless Engine（检查 node / sayless CLI）"])))
+            return
+        }
+        let id = UUID().uuidString
+        let timer = DispatchWorkItem { [weak self] in
+            self?.finish(id, .failure(NSError(domain: "SaylessEngine", code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Engine 超时（180s）"])))
+        }
+        lock.lock()
+        pending[id] = completion
+        timeouts[id] = timer
+        let handle = stdinHandle
+        lock.unlock()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 180, execute: timer)
+        let req: [String: Any] = ["id": id, "action": action, "wav": wav, "app": app, "force": force]
+        guard let data = try? JSONSerialization.data(withJSONObject: req),
+              let line = String(data: data, encoding: .utf8) else {
+            finish(id, .failure(NSError(domain: "SaylessEngine", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "无法编码 engine 请求"])))
+            return
+        }
+        do {
+            try handle?.write(contentsOf: Data((line + "\n").utf8))
+        } catch {
+            finish(id, .failure(error))
+        }
+    }
+
+    private func failAll(_ error: Error) {
+        lock.lock()
+        let completions = Array(pending.values)
+        pending.removeAll()
+        let timers = Array(timeouts.values)
+        timeouts.removeAll()
+        lock.unlock()
+        timers.forEach { $0.cancel() }
+        completions.forEach { $0(.failure(error)) }
+    }
+
+    func cancelAll() {
+        lock.lock()
+        let p = process
+        process = nil
+        stdinHandle = nil
+        lock.unlock()
+        p?.terminate()
+        failAll(NSError(domain: "SaylessEngine", code: 6,
+            userInfo: [NSLocalizedDescriptionKey: "已取消"]))
+        logLine("engine cancelled")
+    }
+
+    func shutdown() {
+        lock.lock()
+        let p = process
+        process = nil
+        stdinHandle = nil
+        lock.unlock()
+        p?.terminate()
+        failAll(NSError(domain: "SaylessEngine", code: 7,
+            userInfo: [NSLocalizedDescriptionKey: "Engine 已退出"]))
+    }
+
+    private func handleExit() {
+        lock.lock()
+        let had = process != nil
+        process = nil
+        stdinHandle = nil
+        lock.unlock()
+        if had { logLine("engine exited") }
+        failAll(NSError(domain: "SaylessEngine", code: 8,
+            userInfo: [NSLocalizedDescriptionKey: "Engine 退出"]))
+    }
+}
+
 // ---------- 主应用 ----------
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
@@ -1881,7 +2073,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var recordingActive = false  // 正在录音（busy 还包括处理阶段）
     var processingActive = false // 子进程正在转写/润色
     var micPermissionPending = false
-    var activeTranscribe: Process?
+    var activeEngineJob: String?
+    lazy var engine = EngineClient(environment: childEnv)
     var insertMode = "paste"     // paste | none（App 自己粘贴时的行为）
     var restoreClipboard = true
     var savedClipboard: String?
@@ -1935,6 +2128,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return env
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        engine.shutdown()
+    }
+
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -1951,6 +2148,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         checkAX()
         NotificationCenter.default.addObserver(self, selector: #selector(permissionStateChanged), name: NSApplication.didBecomeActiveNotification, object: nil)
         logLine("launched v\(appVersion) ptt=\(ptt) insert=\(insertMode)")
+        // 无麦克风自动化测试口：传入 WAV 直接跑一次 Engine 管道（不粘贴）
+        if let testWav = ProcessInfo.processInfo.environment["SAYLESS_TEST_RUN_WAV"], !testWav.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.transcribe(insert: false, force: true, wav: testWav)
+            }
+        }
         // 调试/自动化口子：SAYLESS_SHOW_HUB=<tab> 启动即开面板（0首页 1历史 2词典 3设置）
         if let hubArg = ProcessInfo.processInfo.environment["SAYLESS_SHOW_HUB"], let t = Int(hubArg) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.hub.show(tab: t) }
@@ -2110,6 +2313,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func checkAX() {
+        if ProcessInfo.processInfo.environment["SAYLESS_TEST_RUN_WAV"] != nil {
+            installCGEventTap(quiet: true)
+            return
+        }
         if AXIsProcessTrusted() {
             logLine("AX trusted")
             installCGEventTap()
@@ -2165,9 +2372,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recordingActive = false
             _ = recorder.stopWrite(to: URL(fileURLWithPath: wavPath))
         }
-        if let p = activeTranscribe {
-            activeTranscribe = nil
-            p.terminate()
+        if activeEngineJob != nil {
+            activeEngineJob = nil
+            engine.cancelAll()
         }
         processingActive = false
         busy = false
@@ -2214,16 +2421,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logLine("hotkey start id=\(id)")
     }
     func cancelRecording() {
-        guard busy || recordingActive || activeTranscribe != nil else { return }
+        guard busy || recordingActive || activeEngineJob != nil else { return }
         stopWork?.cancel()
         if recordingActive {
             recordingActive = false
             _ = recorder.stopWrite(to: URL(fileURLWithPath: wavPath)) // 覆盖即丢弃
         }
-        if let p = activeTranscribe {
-            activeTranscribe = nil
-            p.terminate()
-            logLine("terminated in-flight transcribe")
+        if activeEngineJob != nil {
+            activeEngineJob = nil
+            engine.cancelAll()
+            logLine("cancelled in-flight engine job")
         }
         processingActive = false
         busy = false
@@ -2539,104 +2746,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func transcribe(insert: Bool, mode: Int? = nil, force: Bool = false, wav: String? = nil) {
-        guard activeTranscribe == nil else { logLine("transcribe ignored: already running"); return }
+        guard activeEngineJob == nil else { logLine("transcribe ignored: already running"); return }
         let m = mode ?? pendingMode
         pendingMode = 0
+        let action = m == 1 ? "translate" : (m == 2 ? "ask" : "dictate")
         busy = true
         recordingActive = false
         processingActive = true
         capsule.setProcessing()
-        guard let cli = saylessCLIPath() else {
-            busy = false
-            processingActive = false
-            capsule.hide()
-            notify("找不到 sayless CLI", "请先安装：ln -sf \"$PWD/sayless.mjs\" /opt/homebrew/bin/sayless")
-            return
-        }
-        guard let node = whichTool("node") else {
-            busy = false
-            processingActive = false
-            capsule.hide()
-            notify("找不到 Node.js", "sayless 需要 Node 18+：brew install node")
-            return
-        }
-        var args = [cli, "transcribe", wav ?? wavPath, "--no-insert"]
-        if m == 1 { args += ["--translate"] }
-        if m == 2 { args += ["--ask"] }
-        if !targetApp.isEmpty { args += ["--app", targetApp] }
-        if force { args += ["--force"] }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: node)
-        p.arguments = args
-        p.environment = childEnv
-        p.standardOutput = FileHandle.nullDevice
-        activeTranscribe = p
-        // stderr 落到本次运行独有的临时文件：避免长输出填满 pipe，也避免取消后新进程覆盖旧日志
-        let errPath = saylessDataDir + "/last-transcribe-\(UUID().uuidString).log"
-        try? FileManager.default.createDirectory(atPath: saylessDataDir, withIntermediateDirectories: true)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: saylessDataDir)
-        try? Data().write(to: URL(fileURLWithPath: errPath))
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: errPath)
-        let errHandle = FileHandle(forWritingAtPath: errPath)
-        p.standardError = errHandle ?? FileHandle.nullDevice
-        p.terminationHandler = { [weak self] proc in
-            let errText = (try? String(contentsOfFile: errPath, encoding: .utf8)) ?? ""
-            try? errHandle?.close()
-            try? FileManager.default.removeItem(atPath: errPath)
+        let job = UUID().uuidString
+        activeEngineJob = job
+        let wavFile = wav ?? wavPath
+        logLine("engine job action=\(action) wav=\(wavFile)")
+        engine.run(action: action, wav: wavFile, app: targetApp, force: force) { [weak self] result in
             DispatchQueue.main.async {
-                guard let self else { return }
-                // 已被取消或被新进程替换：不要粘贴/提示旧结果
-                guard self.activeTranscribe === proc else { return }
-                self.activeTranscribe = nil
+                guard let self, self.activeEngineJob == job else { return }
+                self.activeEngineJob = nil
                 self.processingActive = false
                 self.busy = false
-                if proc.terminationStatus == 0 {
-                    // 优先读 CLI 的机器可读结果，避免多行文本被逐行截断
-                    var finalText = ""
-                    var resultTs = ""
-                    for line in errText.split(separator: "\n") {
-                        guard line.hasPrefix("RESULT_JSON:") else { continue }
-                        let payload = String(line.dropFirst("RESULT_JSON:".count))
-                        if let d = payload.data(using: .utf8),
-                           let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
-                           let out = o["out"] as? String {
-                            finalText = out
-                            resultTs = (o["ts"] as? String) ?? ""
-                        }
-                    }
-                    if finalText.isEmpty {
-                        finalText = errText.split(separator: "\n")
-                            .first(where: { $0.hasPrefix("结果: ") })
-                            .map { String($0.dropFirst("结果: ".count)) } ?? ""
-                    }
-                    if finalText.isEmpty {
+                switch result {
+                case .failure(let error):
+                    let msg = error.localizedDescription
+                    self.capsule.setResult(text: String(msg.suffix(160)), ok: false, inserted: false)
+                    self.beep("Basso")
+                    self.notify("听写失败", msg)
+                    logLine("engine job failed: \(msg)")
+                case .success(let r):
+                    guard !r.out.isEmpty else {
                         self.capsule.setResult(text: "没有识别到文本", ok: false, inserted: false)
                         self.beep("Basso")
                         logLine("ok but empty text")
                         return
                     }
                     let shouldPaste = insert && self.insertMode != "none"
-                    let pasted = shouldPaste ? self.pasteText(finalText) : false
-                    if pasted { self.markHistoryInserted(ts: resultTs) }
-                    let display = (shouldPaste && !pasted) ? "已复制到剪贴板（自动粘贴失败，请手动 ⌘V）" : finalText
+                    let pasted = shouldPaste ? self.pasteText(r.out) : false
+                    if pasted { self.markHistoryInserted(ts: r.ts) }
+                    let display = (shouldPaste && !pasted) ? "已复制到剪贴板（自动粘贴失败，请手动 ⌘V）" : r.out
                     self.capsule.setResult(text: display, ok: true, inserted: pasted)
                     self.beep("Pop")
-                    logLine("ok mode=\(m) paste=\(pasted) text=\(finalText.prefix(80))")
-                } else {
-                    self.capsule.setResult(text: String(errText.suffix(160)), ok: false, inserted: false)
-                    self.beep("Basso")
-                    self.notify("听写失败（exit \(proc.terminationStatus)）", String(errText.suffix(160)))
-                    logLine("failed: \(errText.suffix(160))")
+                    logLine("ok action=\(action) mode=\(r.mode) paste=\(pasted) text=\(r.out.prefix(80))")
                 }
             }
-        }
-        do { try p.run() } catch {
-            try? FileManager.default.removeItem(atPath: errPath)
-            if activeTranscribe === p { activeTranscribe = nil }
-            processingActive = false
-            busy = false
-            capsule.hide()
-            notify("管线启动失败", error.localizedDescription)
         }
     }
 

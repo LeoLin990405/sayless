@@ -800,6 +800,12 @@ pre{background:#f5eee0;border:1px solid var(--line);border-radius:2px;padding:10
       </div>
 
       <div class="section" data-group="data">
+        <h3>动作 <span class="hintdot">Engine / Action / Pipeline</span></h3>
+        <div id="actions-list"></div>
+        <div class="hint">每个 action 是 config.json 里的一段 stage 序列；内置 dictate / translate / ask，可自行新增。CLI 用 <code>sayless actions</code> 查看、<code>sayless action &lt;id&gt;</code> 执行。</div>
+      </div>
+
+      <div class="section" data-group="data">
         <h3>权限 <span class="hintdot">辅助功能 / 麦克风</span></h3>
         <div class="frow"><label>辅助功能</label><span id="perm-ax-text" class="unit">检查中</span>
           <button class="btn ghost mini" data-act="request-ax">打开设置</button>
@@ -1454,6 +1460,17 @@ function renderHotkeys() {
   }
   renderHomeShortcuts();
 }
+function renderActions() {
+  var el = $('#actions-list');
+  if (!el) return;
+  var acts = CFG.actions || {};
+  var ids = Object.keys(acts);
+  el.innerHTML = ids.length ? ids.map(function (id) {
+    var a = acts[id] || {};
+    var pipe = Array.isArray(a.pipeline) ? a.pipeline.join(' → ') : String(a.pipeline || 'asr → dict → llm');
+    return '<div class="cross-row" style="cursor:default"><span class="idx">' + esc(id) + '</span><b>' + esc(a.label || id) + '</b><span class="mono" style="margin-left:auto;color:var(--muted)">' + esc(pipe) + ' · ' + esc(a.output || 'none') + '</span></div>';
+  }).join('') : '<div class="hint">config.json 里还没有 actions。</div>';
+}
 function permissionText(mic) {
   var map = { authorized: '已授权', denied: '已拒绝', restricted: '受限', notDetermined: '未请求', unknown: '未知' };
   return map[mic] || '未知';
@@ -1551,6 +1568,7 @@ function renderSettings() {
   renderEnv();
   renderProviderStatus();
   renderPermissions();
+  renderActions();
   var navAsr = $('#nav-asr');
   if (navAsr) navAsr.textContent = (asr.adapter || 'whisper') === 'whisper' ? '本地' : '云端';
   var navModel = $('#nav-model');

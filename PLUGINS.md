@@ -35,7 +35,17 @@ export const workflows = {
   mine: { asr: 'whisper', llm: { provider: 'my-llm' }, cross: true },
 };
 
-// 3) 文本钩子（按管线顺序）
+// 3) 注册自定义 action / pipeline（不覆盖 config.json 同名项）
+export const actions = {
+  cleanNote: {
+    label: '清理成笔记',
+    pipeline: ['asr', 'dict', 'llm'],
+    output: 'clipboard',
+  },
+};
+// 之后 `sayless action cleanNote` 或 engine 请求 {"action":"cleanNote"} 即可执行
+
+// 4) 文本钩子（按管线顺序）
 // ctx = { mode: 'dictate'|'translate:*'|'ask'|'raw', app: 前台应用名|null, wavPath, cfg }
 export async function onTranscript(text, ctx) { return text; }  // ASR+词典后、LLM 前
 export async function onPolish(text, ctx)     { return text; }  // 结果定稿前（历史落盘前）
