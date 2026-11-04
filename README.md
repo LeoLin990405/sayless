@@ -1,333 +1,306 @@
+<div align="center">
+
+<img src="docs/assets/banner.svg" alt="Sayless banner" width="100%">
+
 # Sayless
 
-> **Sayless 是独立实现的本地优先语音引擎**：v7 起核心为长驻 **Sayless Engine** + 可编程 **Action / Pipeline**，菜单栏 App、CLI、hub 都只是客户端。仅作学习研究，**切勿商用**（详见 [LICENSE](LICENSE)）。
+**Local-first voice engine for macOS: dictate, translate, ask, and compose your own speech actions.**
 
-**本地优先的中文语音听写 / 翻译 / 问答 / 可编程语音动作引擎**——录音 → ASR → 词语库 → 多模型润色 → 自定义 action 输出，配一个「纸面工作台」菜单栏 App。当前版本 **v7.0.0**（见 [CHANGELOG](CHANGELOG.md)）。
+Local whisper.cpp ASR · programmable action pipeline · multi-model cross-vote · plugin hooks · data stays on the machine.
 
-干净的自研实现（不含任何第三方听写应用代码），模型走**你自己的套餐**，词语库和听写历史全部本地；底层不再围绕「听写/翻译/问答」三种硬编码模式设计，而是由 action pipeline 组合。
+[**简体中文**](README.zh-CN.md) · **English**
 
-```
-麦克风 ──▶ ASR（本地 whisper.cpp / MiMo 云端）──▶ 词语库确定性替换
-      ──▶ LLM 润色（单模型或 N 家交叉投票）──▶ 词语库兜底 ──▶ 剪贴板 + ⌘V
-```
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-custom%20non--commercial-D97706?style=flat-square" alt="License: custom non-commercial"></a>
+<a href="package.json"><img src="https://img.shields.io/badge/node-18%2B-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node 18+"></a>
+<a href="app/"><img src="https://img.shields.io/badge/macOS-13%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS 13+"></a>
+<a href="test/"><img src="https://img.shields.io/badge/tests-79-0EA5E9?style=flat-square" alt="79 Node integration tests"></a>
+<a href=".github/workflows/ci.yml"><img src="https://img.shields.io/badge/ci-github%20actions-2088FF?style=flat-square&logo=githubactions&logoColor=white" alt="CI workflow"></a>
 
-## 界面速览
+</div>
 
-<p align="center">
-  <img src="docs/screenshots/capsule.png" width="520" alt="录音纸片"><br/>
-  <sub>录音纸片：朱砂录音点 · 墨色波形 · 红色停止 —— Sayless Paper</sub>
-</p>
-<p align="center">
-  <img src="docs/screenshots/menubar.png" width="300" alt="菜单栏弹出面板"><br/>
-  <sub>菜单栏：自定义 Paper 弹出面板（最近条目 / 三个内置动作 / 快捷入口）</sub>
-</p>
+> [!NOTE]
+> **Current state.** Sayless v7.0.0 is an independent, local-first voice engine. The core is a
+> long-lived **Sayless Engine** with a programmable **Action / Pipeline** protocol; the menu-bar app,
+> CLI, hub workbench, and plugins are clients of that engine. The project is for personal study and
+> research only — commercial use is not permitted (see [LICENSE](LICENSE)).
 
-| 首页：刊头 / 印章 / 52 周书写记录 | 历史：纸面台账 / 搜索 / 回放 / 重转写 |
-|---|---|
-| ![首页](docs/screenshots/hub-home.png) | ![历史](docs/screenshots/hub-history.png) |
-| **词典：索引 / 替换 / 热词 / 分应用词层** | **设置：分类导航 / 单组表单 / 保存状态** |
-| ![词典](docs/screenshots/hub-dict.png) | ![设置](docs/screenshots/hub-settings.png) |
+## ✨ Features
 
-| **⌘K 命令面板** | **? 快捷键帮助** |
-|---|---|
-| ![命令面板](docs/screenshots/hub-command.png) | ![快捷键](docs/screenshots/hub-shortcuts.png) |
+- **Hold a hotkey, get text.** `⌥Space` dictates into the focused app; `⌥T` translates, `⌥Q` answers
+  a spoken question with web search. All three hotkeys are re-recordable in settings.
+- **Programmable engine.** `sayless engine --stdio` is a long-lived process speaking JSON Lines;
+  an action is an ordered list of stages (`asr → dict → llm → translate → ask`) with an output
+  adapter (`paste / clipboard / stdout / file / none`). New actions are added in `config.json`, no code change.
+- **Local by default.** ASR defaults to local whisper.cpp with Metal acceleration; audio never
+  leaves the machine unless you configure a cloud ASR adapter. Engine, dictionary, history, and
+  recordings live under `~/.sayless` with `0600` permissions.
+- **Cross-model voting.** Up to five providers draft in parallel; drafts are clustered by character
+  bigram Dice similarity (threshold `0.82`) and the majority cluster wins, with an arbiter model
+  deciding when nothing agrees.
+- **Personal dictionary.** Deterministic replacements, hotwords, style rules, and per-application
+  layers, all editable from the hub and applied before and after the LLM stage.
+- **Learning loop.** `sayless learn` diffs your original vs. corrected text with LCS, writes
+  replacement rules, and `--mine --apply` writes high-frequency corrections back to the dictionary.
+- **Plugin hooks.** Drop a `.mjs` file into `~/.sayless/plugins/` to override `onTranscript`,
+  `onPolish`, `onInsert`, or register providers and workflows — see [PLUGINS.md](PLUGINS.md).
+- **Sayless Paper UI.** A paper-toned menu-bar shell and hub: masthead navigation, seal, 52-week
+  writing record, paper ledger history, `⌘K` command palette, and `⌘1–4` tab switching.
+- **Broad model access.** 14 built-in OpenAI-compatible provider presets and a provider editor for
+  any OpenAI-compatible endpoint; model names are free-form and can differ per task.
+- **Permission assistant.** Separates Accessibility (control/paste) from Input Monitoring (global
+  hotkeys), re-registers the app on updates, and reports actionable state in the menu and hub.
 
-<p align="center"><img src="docs/screenshots/hub-settings-model.png" width="920" alt="模型 / 供应商连接"><br/>
-<sub>模型页：内置供应商 + 任意 OpenAI 兼容自定义端点</sub></p>
-
-
-## 特性一览
-
-- **⌥Space 说话即打字**：菜单栏常驻，按住热键说话，松手文本自动润色并粘贴进当前焦点应用；⌥T 说话即翻译、⌥Q 说话即联网问答，键位可在设置页录制修改
-- **可编程引擎**：`sayless engine --stdio` 长驻进程 + JSON 行协议；action = 有序 stage（`asr → dict → llm → translate → ask`），输出适配 `paste / clipboard / stdout / file / none`；用户可在 `config.json` 里新增任意 action，CLI/App 共用同一引擎
-- **本地优先**：ASR 默认本地 whisper.cpp（Metal 加速，8s 语音约 1s 转完），语音不出机器；配置、词库、历史、录音归档都是本机 0600
-- **多模型交叉投票**：5 家模型并行出稿 → 字符二元组相似度聚类 → 多数共识取胜（取簇内 medoid），全分歧时仲裁模型裁决，实战全票率极高
-- **个性化词语库**：专有名词保护、确定性替换、风格规则、按前台应用自动叠加分应用词层；hub 里可增删改
-- **自我学习**：`sayless learn` 用 LCS 智能 diff 自动生成词条，`--mine --apply` 把高频修正回写词库
-- **完全可定制**：`~/.sayless/plugins/` 放一个 `.mjs` 即可接管管线任意环节（见 [PLUGINS.md](PLUGINS.md)）
-- **Sayless Paper 界面**：暖纸底 + 墨色排版 + 朱砂印章；顶部刊头导航取代侧栏，首页是刊头/印章/52 周书写记录，历史是纸面台账，设置是「分类导航 + 单组表单 + 保存状态」；**⌘K 命令面板**、⌘1–4 切页、`/` 聚焦搜索、`?` 快捷键帮助；历史支持全量搜索、分页与命中高亮
-- **模型接入范围**：内置 14 家 OpenAI 兼容 provider；设置页「供应商连接」可新增/编辑/删除任意 OpenAI Chat Completions 端点（OpenAI / OpenRouter / Groq / Ollama / LM Studio / SiliconFlow / 自建网关…），模型名自由填写，听写/翻译/问答/交叉阵容可混用不同家。原生 Anthropic Messages / Gemini generateContent 等非 OpenAI 协议不在内置范围，请走 OpenRouter 等网关或插件；ASR 仍是 whisper / MiMo / 方舟 / OpenAI 兼容四类适配器。
-- **权限修复助手**：区分**辅助功能**（控制电脑/自动粘贴）和**输入监控**（监听全局热键/PTT/Esc）两套 TCC；每次版本更新自动弹系统授权提示并注册当前 App；菜单栏与 hub 显示可操作状态；授权后无需重启，8 秒轮询/回前台自动启用 CGEventTap。粘贴改为直接 post CGEvent，不再依赖 System Events / Automation。macOS 不允许应用自动授予 TCC，仍需用户在系统设置点一次。
-- **可靠性**：LLM 429/5xx 自动重试、录音结束才进入转写、配置原子写入、空识别非零退出、粘贴后恢复剪贴板（App 用 NSPasteboard 快照恢复文本/图片/文件；CLI 为文本级）；麦克风权限预检、UserNotifications 原生通知、词典/历史写入失败不再假成功
+## 🧠 Architecture
 
 ```mermaid
 flowchart LR
-    Mic[麦克风] --> Rec[App 录音<br/>AVAudioEngine]
-    Rec -->|WAV| Eng[Sayless Engine<br/>长驻 JSONL]
-    CLI[CLI / 脚本] -->|JSONL 或直连| Eng
-    Hub[Hub / 菜单栏] -.数据查询.-> Eng
-    Eng --> ASR{ASR 适配器}
-    ASR -->|whisper 默认| W["whisper.cpp（本地·离线）"]
-    ASR -->|可选云端| C[MiMo / 方舟 / OpenAI 兼容]
-    W --> Pipe[Action Pipeline]
-    C --> Pipe
-    Pipe --> D[词语库 / 热词 / 分应用层]
-    Pipe --> LLM[模型供应商 + 交叉投票]
-    Pipe --> Out[输出适配器<br/>paste / clipboard / file / stdout]
-    Out --> Hist[(history.jsonl + recordings)]
+    subgraph clients["Clients"]
+        App["SaylessBar menu-bar app"]
+        CLI["CLI / scripts"]
+        Hub["Hub workbench"]
+        Plug["Plugins"]
+    end
+
+    subgraph engine["Sayless Engine · JSONL over stdio"]
+        Dispatch["Action dispatcher"]
+        ASR["ASR stage"]
+        Dict["Dictionary stage"]
+        LLM["LLM stage + cross-vote"]
+        Ask["Translate / ask stage"]
+        Out["Output adapters"]
+    end
+
+    Whisper["whisper.cpp local (default)"]
+    Cloud["MiMo / Ark / OpenAI-compatible ASR"]
+    Providers["OpenAI-compatible model providers"]
+
+    subgraph data["Local only · ~/.sayless · 0600"]
+        Cfg[("config.json")]
+        Dic[("dictionary.json")]
+        Hist[("history.jsonl")]
+        Rec[("recordings/")]
+    end
+
+    App -->|"WAV + action id"| Dispatch
+    CLI -->|"action or direct call"| Dispatch
+    Hub -. "read config / history" .-> Dispatch
+    Plug -->|"text hooks"| Dispatch
+    Dispatch --> ASR
+    ASR --> Whisper
+    ASR --> Cloud
+    ASR --> Rec
+    Dispatch --> Dict
+    Dict --> LLM
+    Dict --> Ask
+    LLM --> Providers
+    Ask --> Providers
+    Dict --> Out
+    LLM --> Out
+    Ask --> Out
+    Out --> Dest["paste / clipboard / stdout / file"]
+    Dispatch <--> Cfg
+    Dispatch <--> Dic
+    Dispatch --> Hist
 ```
 
-## 架构：Sayless Engine + Action Pipeline
+The implementation is flat by design: [`sayless.mjs`](sayless.mjs) bundles engine, CLI, ASR adapters,
+dictionary, history, providers, and plugins; [`asr-ark-ws.mjs`](asr-ark-ws.mjs) is the Ark streaming
+ASR adapter; [`app/`](app/) holds the SwiftUI/AppKit menu-bar app and hub HTML; [`test/`](test/)
+contains the Node integration suite; [`tools/`](tools/) has demo/rendering helpers. Process topology,
+stage semantics, the JSONL protocol, and extension points are documented in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
-v7 起不再把「按一下 → 走一条固定听写管线 → 粘贴」写死在 App 里。核心是一条**长驻引擎进程**，所有端都是客户端：
+## 🚀 Quick start
 
-- **Engine**：Node 进程，stdin/stdout JSON 行协议；一次启动，复用配置、供应商、词典、历史。
-- **Action**：一段可配置的 pipeline，例如 `["asr","dict","llm","dict"]`；内置 `dictate / translate / ask`，用户可加 `note`、`clean`、`translateOnly` 等。
-- **Stage**：`asr` / `dict` / `llm` / `translate` / `ask`，按 action 里的顺序执行；插件钩子仍可接管 `onTranscript` / `onPolish` / `onInsert`。
-- **Output adapter**：`paste`、`clipboard`、`stdout`、`file`、`none`；Engine 自身默认 `none`，由 App 负责粘贴，CLI 可选任意适配器。
-- **Clients**：菜单栏 App（录音 + 权限 + 粘贴）、CLI（脚本/自动化）、hub（查看/管理）、插件（providers/workflows/actions）。
-
-```jsonc
-// ~/.sayless/config.json
-"actions": {
-  "dictate":   { "label": "听写", "pipeline": ["asr","dict","llm","dict"], "output": "paste" },
-  "translate": { "label": "翻译", "pipeline": ["asr","dict","translate","dict"], "output": "paste" },
-  "ask":       { "label": "问答", "pipeline": ["asr","dict","ask","dict"], "output": "paste" },
-  "note":      { "label": "语音笔记", "pipeline": ["asr","dict","llm"], "output": "file", "file": "~/Notes/voice.md" }
-}
-```
-
-协议与扩展细节见 [ARCHITECTURE.md](ARCHITECTURE.md)；长期记忆融合方案见 [docs/MEMORY_INTEGRATION.md](docs/MEMORY_INTEGRATION.md)。一句话：**模型、数据、词库、pipeline、输出目的地都由你组合**——这也是 Sayless 与任何固定式听写产品的底层区别。
-
-## 快速开始
+**Requirements:** macOS 13+, Node 18+, [`whisper.cpp`](https://github.com/ggerganov/whisper.cpp)
+(`brew install whisper-cpp`), and `ffmpeg` (device detection and recording).
 
 ```sh
-# 依赖：Node 18+，whisper.cpp（brew install whisper-cpp），ffmpeg（录音设备探测用）
-git clone https://github.com/LeoLin990405/sayless.git && cd sayless
-ln -sf "$PWD/sayless.mjs" /opt/homebrew/bin/sayless   # 终端调用更方便；App 构建时已自带 CLI
+git clone https://github.com/LeoLin990405/sayless.git
+cd sayless
+ln -sf "$PWD/sayless.mjs" /opt/homebrew/bin/sayless   # optional, for terminal use
 
-sayless init          # 生成 ~/.sayless/{config.json, dictionary.json}
+sayless init          # creates ~/.sayless/{config.json, dictionary.json}
 
-# 下载 whisper 基座模型（148MB，必下；网络不畅可把域名换成 hf-mirror.com 镜像）
 mkdir -p ~/.sayless && curl -L -o ~/.sayless/ggml-base.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
 
-sayless doctor        # 体检：ASR/链路/各家供应商 key/录音设备（模型缺失会标注）
-sayless run           # 说话，回车停止 → 转写+润色+粘贴
+sayless doctor        # checks ASR, providers, and recording devices
+sayless run           # speak, press Enter to stop → transcribe → polish → paste
 ```
 
-菜单栏 App（可选但推荐）：
+The menu-bar app is optional but recommended:
 
 ```sh
-cd app && ./build.sh          # swiftc 编译 + 代码签名 + 安装 /Applications 并启动
-BUILD_ONLY=1 ./build.sh       # 只打包到 app/SaylessBar.app，不安装（CI / 验证）
-SAYLESS_SIGN=adhoc BUILD_ONLY=1 ./build.sh   # 跳过钥匙串里的持久证书，ad-hoc 签名（CI/无 GUI）
+cd app && ./build.sh            # build, sign, install to /Applications, launch
+BUILD_ONLY=1 ./build.sh         # package to app/SaylessBar.app only (CI / verification)
+SAYLESS_SIGN=adhoc BUILD_ONLY=1 ./build.sh   # ad-hoc signing, no Keychain certificate
 ```
 
-构建会把 `sayless.mjs` 与 `asr-ark-ws.mjs` 一起放进 `SaylessBar.app/Contents/Resources/`，因此 App 不依赖 `/opt/homebrew/bin/sayless` 也能跑；终端命令仍建议做上面的 symlink。
+> [!TIP]
+> The first launch asks for two permissions, both granted to `SaylessBar`: **Microphone** and
+> **Accessibility** (hotkeys and paste). The build embeds `sayless.mjs` and `asr-ark-ws.mjs` in the
+> app bundle, so the app works even without the `/opt/homebrew/bin/sayless` symlink.
 
-首次使用授权两次（都给 SaylessBar）：**麦克风**、**辅助功能**（热键与粘贴）。
+## 🖥️ SaylessBar app & hub
 
-## SaylessBar 菜单栏 App
-
-- **录音纸片**：屏幕底部浮出米纸小条（朱砂录音点、墨色波形、红色停止），Listening / Translating / Asking 状态，Transcribing 带循环点动效；Esc 取消，90s 自动收尾
-- **hub 四页**：首页（刊头 + 口述字数/条数/活跃天/连续天 + 52 周书写记录）｜历史记录（纸面台账、全量搜索、复制、回放、重转写、删除、清空）｜词典（索引式替换/热词/词频/风格规则/分应用层增删改）｜设置（分类导航 + 单组表单，见下）
-- **设置页**：左侧分类导航（语音 / 模型 / 质量 / 交互 / 数据）+ 单组表单，避免一次列出 11 个 section；顶部与底部均可保存，未保存/已保存有状态提示。ASR 引擎/路径/语种、润色供应商+模型+重试、翻译、交叉阵容与仲裁、Ask（引擎/代理/结果数）、工作流、提示音/PTT/结果投放/剪贴板恢复、**快捷键录制（冲突内联提示）**、**供应商 API Key 写入 + 各 provider 已配置状态**（密码框不回显，key 只落本地 config.json 0600）、**一键体检**；「供应商连接」可新增/编辑/删除任意 OpenAI 兼容 provider——保存深合并写回 config.json，数字/空值也能正确清除
-- **键位**：设置页点击键位后按下新组合，保存到 config.json 的 `"hotkeys"`（slot: dictate/translate/ask，key 为 macOS 键码，modifier: option/command/control/shift/none），重启 App 生效
-- **菜单栏**：点击状态栏 S 图标弹出**自定义 Paper 面板**（不是系统 NSMenu）——开始听写 / 翻译 / 问答、最近 3 条、工作台 / 历史 / 设置、更多菜单（登录启动 / 词库 / 数据目录 / 日志 / 辅助功能 / 紧急停止 / 退出）
-
-构建与签名：
-
-- `app/build.sh` 自动检测钥匙串里的 `Sayless Local Dev` 证书并以其签名，尽量沿用同一 code requirement；但 **macOS 仍可能在二进制更新后重置 TCC 授权**，更新后若热键/粘贴失效，请到 系统设置 → 隐私与安全性 → 辅助功能 重新勾选 SaylessBar（麦克风同理）。找不到证书则回退 ad-hoc。
-- 构建产物自带 CLI（Resources/sayless.mjs），App 内转写、体检直接走 `node` 执行内置脚本；`SAYLESS_CLI` 可覆盖路径
-- 制作持久证书（一次性，全自动）：`openssl req -x509 -newkey rsa:2048 -nodes -addext "extendedKeyUsage=codeSigning" -subj "/CN=Sayless Local Dev"` 生成 → `security import` → `security add-trusted-cert -p codeSign`（会弹一次 Touch ID/密码确认）
-- 调试口子：`SAYLESS_SHOW_HUB=<0-3>` 启动即开对应页面（首页/历史/词典/设置）；`SAYLESS_DUMP_HUB=/tmp/hub.html` 直接写出 hub 数据页；`SAYLESS_DUMP_PANEL=/tmp/panel.png` 把自定义菜单栏面板渲染成 PNG
-
-## CLI 参考
-
-| 命令 | 说明 |
+| Home: masthead, seal, 52-week writing record | History: paper ledger, search, replay, re-transcribe |
 |---|---|
-| `sayless run` | 录音→转写→润色→粘贴。**等录音真正结束后才进入转写**；`--sec N` 定长，`--raw` 跳过 LLM，`--no-insert` 只输出，`--translate en` 翻译模式，`--ask` 问答模式，`--workflow quality` 临时切工作流 |
-| `sayless rec --sec 5 -o a.wav` | 仅录音（16k mono wav，0600）；可用 `SAYLESS_FFMPEG` / `rec.device` 指定 |
-| `sayless asr <file.wav>` | 仅转写（走当前 ASR 适配器，可选 `--app` 词层） |
-| `sayless polish "<text>"` | 只润色。`--dry-run` 只过词语库，`--cross` 强制投票；文本传 `-` 从 stdin 读 |
-| `sayless translate "<text>" --to ja` | 翻译，10 语种；`--say` 先录音 |
-| `sayless ask "<问题>"` | Bing CN + DuckDuckGo 检索 → 带 [n] 引用的回答；`--say` 先录音，`--no-search` 跳过联网 |
-| `sayless engine --stdio` | 长驻引擎，JSON 行协议；菜单栏 App 使用此通道，一次启动复用配置/供应商/词典 |
-| `sayless actions` | 列出当前 action 及其 stage pipeline / output |
-| `sayless action <id> [wav]` | 直接执行一个 action；`--say` 先录音，`--app` 指定分应用词层 |
-| `sayless transcribe <wav>` | 兼容旧客户端：转写→润色→粘贴；`--force` 绕过短语音守卫（App 已改用 engine） |
-| `sayless insert "<text>"` | 手动粘贴任意文本进焦点应用（默认 1.6s 后恢复剪贴板） |
-| `sayless dict add\|del\|add-hot\|del-hot\|import\|stats\|export\|validate` | 词语库管理；`import` 支持每行 `a=>b`、纯热词，或 `dict export` 产出的 JSON（自动合并）；`app-add-hot` / `app-add-replace` 管理分应用词层 |
-| `sayless learn "<原文>" "<改稿>"` | LCS 智能 diff 自动生成替换规则；`--last` 对比上一条；`--mine [--apply]` 挖掘并回写高频修正；`--dry-run` 不落盘 |
-| `sayless history [-n 20] [--json] [--search q] [--delete n\|ts] [--clear --force] [--export file]` | 历史查看、搜索、删除、清空、导出 |
-| `sayless stats [--json]` | 口述字数/条数/活跃天/连续天/模式与 app 分布/录音归档大小 |
-| `sayless plugin` | 已加载插件及钩子 |
-| `sayless doctor [--offline] [--json]` | 体检：ASR/Node/ffmpeg/权限/供应商实测/录音设备；`--offline` 不联网 |
-| `sayless devices` | 列出 avfoundation 录音设备（只取音频段） |
+| ![Home](docs/screenshots/hub-home.png) | ![History](docs/screenshots/hub-history.png) |
+| **Dictionary: index, replacements, hotwords, per-app layers** | **Settings: category navigation, one form group, save state** |
+| ![Dictionary](docs/screenshots/hub-dict.png) | ![Settings](docs/screenshots/hub-settings.png) |
+| **⌘K command palette** | **? shortcut help** |
+| ![Command palette](docs/screenshots/hub-command.png) | ![Shortcuts](docs/screenshots/hub-shortcuts.png) |
 
-通用旗标：`--provider <id>`、`--model <id>` 单次切换供应商与模型；`--cross` 强制交叉投票；`--workflow <id>` **显式**应用整套预设；`--json`、`--force`、`--no-insert`、`--app <name>`。以 `-` 开头的文本用 `--` 分隔（如 `sayless polish -- "-dash-text"`）。
+<p align="center">
+  <img src="docs/screenshots/capsule.png" width="520" alt="Recording capsule"><br/>
+  <sub>Recording capsule: vermilion dot · ink waveform · red stop</sub>
+</p>
+<p align="center">
+  <img src="docs/screenshots/menubar.png" width="300" alt="Menu-bar panel"><br/>
+  <sub>Menu-bar panel: recent entries, three built-in actions, quick links</sub>
+</p>
 
-环境变量：`SAYLESS_DIR` 覆盖数据目录（测试/多套配置），`SAYLESS_API_KEY` 作为**未配置 provider key 时的兜底**（显式配置优先），`SAYLESS_FFMPEG` / `SAYLESS_AUDIO_DEVICE` 指定录音命令与设备。
+## 🗂️ CLI & actions
 
-## 多模型
+The most-used commands; the full table (history, dictionary, learn, plugins, devices, environment
+variables) is in [`docs/reference.md`](docs/reference.md).
 
-`config.json → providers` 注册任意 OpenAI 兼容供应商（baseUrl + apiKey），内置预设：
+| Command | What it does |
+|---|---|
+| `sayless run` | Record → transcribe → polish → paste. `--sec N`, `--raw`, `--no-insert`, `--translate en`, `--ask`, `--workflow quality` |
+| `sayless rec --sec 5 -o a.wav` | Record only (16 kHz mono WAV, `0600`); `SAYLESS_FFMPEG` / `rec.device` select the recorder |
+| `sayless asr <file.wav>` | Transcribe only through the configured ASR adapter; `--app` selects an app dictionary layer |
+| `sayless polish "<text>"` | Polish only; `--dry-run` for dictionary-only, `--cross` to force voting, `-` reads stdin |
+| `sayless translate "<text>" --to ja` | Translate into one of 10 languages; `--say` records first |
+| `sayless ask "<question>"` | Search (Bing CN + DuckDuckGo) → answer with `[n]` citations; `--no-search` skips the web |
+| `sayless engine --stdio` | Long-lived engine for clients; JSONL on stdin/stdout |
+| `sayless actions` / `sayless action <id> [wav]` | List actions or execute one directly |
+| `sayless doctor` | Health check: ASR, Node, ffmpeg, permissions, providers, devices (`--offline`, `--json`) |
 
-| 供应商 | 端点 | 备注 |
-|---|---|---|
-| `ark-plan` | `ark.cn-beijing.volces.com/api/plan/v3` | 火山方舟 Agent Plan 套餐（豆包系列） |
-| `deepseek` | `api.deepseek.com/v1` | |
-| `zai` | `open.bigmodel.cn/api/coding/paas/v4` | 智谱 GLM Coding Plan |
-| `minimax` | `api.minimaxi.com/v1` | 走非标路径 `chatPath=/text/chatcompletion_v2`（provider 配置支持） |
-| `kimi` | `api.kimi.com/coding/v1` | Kimi for Coding（`sk-kimi-` key 专用端点） |
-| `qwen-plan` | `token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | 阿里 Token Plan（`sk-sp-` key 只认自家 maas 网关） |
-| `bailian-ws` | workspace 专属网关 | 百炼工作区，需控制台开通模型 |
-| `stepfun` / `stepfun-plan` | `api.stepfun.com/v1` / `/step_plan/v1` | **套餐额度走 `/step_plan` 专用地址**，与按量余额独立；需[实名认证](https://account.stepfun.com/security?action=realname)；仅 `step-router-v1`（输出带脚手架，勿入投票） |
-| `mimo` / `mimo-plan` | `api.xiaomimimo.com/v1` / `token-plan-sgp.xiaomimimo.com/v1` | 小米 Token Plan 的 `tp-` key 走专属域名；V2.5 系 chat 模型已下线，用 `mimo-v2.6-flash` |
-| `dashscope` / `siliconflow` / `moonshot` / `zhipu` | — | 预设就绪，填 key 即用 |
-
-经验法则：**同一家的"套餐"和"按量"往往是两套额度、两个地址**——402/403 先查是不是打错了通道（`sayless doctor` 一目了然）。
-
-### 交叉投票（`--cross`）
-
-```mermaid
-flowchart TB
-    In[原文] --> M1[zai · glm-5-turbo]
-    In --> M2[deepseek · deepseek-flash]
-    In --> M3[minimax · MiniMax-M3]
-    In --> M4[ark-plan · doubao-turbo]
-    In --> M5[mimo-plan · v2.6-flash]
-    M1 --> N[归一化 → 字符二元组 Dice 相似度聚类<br/>阈值 0.82 · 逐模型 30s 熔断]
-    M2 --> N
-    M3 --> N
-    M4 --> N
-    M5 --> N
-    N --> Q{最大簇 ≥ 2 ？}
-    Q -->|是| Win[多数共识胜出]
-    Q -->|否| Arb[仲裁模型<br/>deepseek-v4-flash 裁决]
-    Win --> Out[定稿 → 历史 → 粘贴]
-    Arb --> Out
-```
-
-`cross.models` 里每家并行出稿（逐模型 30s 熔断）→ 归一化字符二元组 Dice 相似度聚类（阈值 `similarity: 0.82`）→ 最大簇 ≥2 即共识，全分歧时 `cross.arbiter` 裁决。当前阵容：zai + deepseek + minimax + ark-plan + mimo-plan 五家，实测常全票。
-
-### 工作流
-
-`workflows` 预设可以组合 ASR / 模型 / 投票策略，`activeWorkflow` 为默认：
-
-- `fast` — 单模型直出（日常听写推荐，2-3s）
-- `quality` — 交叉投票（~15s）
-- `cloud` — 云端 ASR + 投票
-
-**重要：持久 `activeWorkflow` 只决定“是否投票”这类策略，不会覆盖设置页里选的 ASR 引擎与模型；只有显式 `--workflow <id>` 才临时应用整套预设（包括 `cloud` 的云端 ASR）。** 这样设置页的 ASR / provider / model 选择始终生效，不会被旧工作流静默改回去。
-
-## 个性化词语库（dictionary.json）
+Actions are configured in `~/.sayless/config.json`:
 
 ```jsonc
-{
-  "replacements": [{ "from": "摆链", "to": "Bailian" }],   // 确定性替换，LLM 前后各跑一遍，离线也生效
-  "hotwords": ["ZCode", "Bailian"],                        // 专有名词注入 prompt，防 ASR/LLM 瞎改
-  "styleRules": ["删除语气词", "技术名词保留英文"],           // 逐条进润色 system prompt
-  "apps": { "微信": { "hotwords": ["方舟"] } }              // 按前台应用自动叠加词层
+"actions": {
+  "dictate":   { "label": "Dictate",   "pipeline": ["asr","dict","llm","dict"],       "output": "paste" },
+  "translate": { "label": "Translate", "pipeline": ["asr","dict","translate","dict"], "output": "paste" },
+  "ask":       { "label": "Ask",       "pipeline": ["asr","dict","ask","dict"],       "output": "paste" },
+  "note":      { "label": "Voice note","pipeline": ["asr","dict","llm"],              "output": "file",
+                 "file": "~/Notes/voice.md" }
 }
 ```
 
-`sayless learn` 学习闭环：LCS 智能 diff（中文按 Intl.Segmenter 分词）对比原文与改稿生成替换规则 → 写入 `feedback.jsonl` → `--mine` 挖掘高频模式 → `--mine --apply --min-count 2` 自动回写 → hub 词典页可视化管理。
+## 🧩 Models, dictionary & plugins
 
-## 插件（开发口子）
+**Providers.** `config.json → providers` registers any OpenAI-compatible endpoint. Presets include
+Ark Agent Plan (`ark-plan`), DeepSeek (`deepseek`), Z.ai GLM (`zai`), MiniMax (`minimax`), Kimi
+(`kimi`), Qwen Token Plan (`qwen-plan`), StepFun (`stepfun`), MiMo (`mimo`), and generic
+`dashscope` / `siliconflow` / `moonshot` / `zhipu` entries. A vendor's subscription plan and
+pay-as-you-go quota are usually different endpoints — check with `sayless doctor` when you see
+402/403. Full provider matrix and quota notes: [`docs/reference.md`](docs/reference.md).
 
-不改源码定制管线：`~/.sayless/plugins/*.mjs` 自动加载，可导出 `onTranscript / onPolish / onInsert` 文本钩子、`providers` 自定义供应商、`workflows` 工作流预设。按应用切语气、行业术语后处理、听写同步外部系统等食谱见 **[PLUGINS.md](PLUGINS.md)**，`sayless plugin` 查看加载状态。
+**Cross-vote.** `--cross` (or the `quality` workflow) runs the configured models in parallel, then
+normalises and clusters drafts with Dice similarity; the largest cluster of at least two wins, and
+the arbiter model decides full disagreements. Each model call has a 30 s timeout.
 
-```mermaid
-flowchart LR
-    A[ASR + 词典] -->|onTranscript| B[LLM 润色 / 投票]
-    B -->|onPolish| C[定稿 · 历史落盘]
-    C -->|onInsert| D[剪贴板 + ⌘V]
-    P[plugins/*.mjs] -.->|providers 注册| R[供应商注册表]
-    P -.->|workflows 追加| W[工作流预设]
-    P -.->|三个文本钩子| A
-    P -.-> B
-    P -.-> C
-    P -.-> D
-```
+**Dictionary.** `dictionary.json` holds `replacements`, `hotwords`, `styleRules`, and per-app
+layers. Replacements run before and after the LLM, so they also work offline. `sayless learn`
+generates candidate rules from edits; the hub manages them visually.
 
-## ASR 引擎
+**Plugins.** `~/.sayless/plugins/*.mjs` are loaded automatically and may export text hooks
+(`onTranscript`, `onPolish`, `onInsert`), custom providers, and workflow presets. Recipes and the
+module contract are in [PLUGINS.md](PLUGINS.md).
 
-| adapter | 说明 |
+## 📦 Local data & privacy
+
+All state lives under `~/.sayless` (override with `SAYLESS_DIR`), created with `0600` permissions:
+
+| Path | Contents |
 |---|---|
-| `whisper`（默认） | 本地 whisper.cpp + ggml 模型，离线、零成本；静音幻觉（括号包裹输出）自动过滤 |
-| `mimo-asr` | MiMo-V2.5-ASR 云端：中英双语+方言+自动标点，走 Token Plan 套餐按秒计费；chat 接口 + input_audio base64，地址/key 自动取 `providers.mimo-plan` |
-| `ark-ws` | 火山方舟语音大模型流式识别（需在方舟控制台开 Agent Plan 按量扣费） |
-| `openai` | 任意 OpenAI 兼容 `/audio/transcriptions` 端点 |
+| `config.json` | Providers, ASR/LLM settings, actions, hotkeys — contains API keys, never committed |
+| `dictionary.json` | Replacements, hotwords, style rules, per-app layers |
+| `history.jsonl` | Dictation history; `out` capped at 1,000 chars, `raw` at 500 |
+| `feedback.jsonl` | Learning-loop corrections from `sayless learn` |
+| `recordings/` | Audio archive, last 200 kept, replayable from the hub |
+| `plugins/` | User plugins |
 
-## 配置参考（~/.sayless/config.json，0600）
+The hub strips every `apiKey` before rendering and only sees a `hasKey` boolean. Audio is sent only
+to the ASR endpoint you configured; with the default whisper.cpp adapter it never leaves the machine.
 
-```jsonc
-{
-  "providers": { "<id>": { "baseUrl": "...", "apiKey": "...", "model": "...", "chatPath": "..." } },
-  "asr":     { "adapter": "whisper", "whisperBin": "/opt/homebrew/bin/whisper-cli",
-               "whisperModel": "~/.sayless/ggml-base.bin", "language": "zh",
-               "filterHallucinations": true },
-  "llm":       { "provider": "ark-plan", "model": "doubao-seed-2-1-turbo-260628",
-                 "temperature": 0, "retries": 2, "timeoutMs": 45000 },
-  "translate": { "to": "en", "provider": "ark-plan", "model": "..." },
-  "ask":       { "provider": "ark-plan", "model": "...", "engines": ["bing", "ddg"],
-                 "maxResults": 5, "proxy": "http://127.0.0.1:7897" },
-  "cross":     { "models": [{ "provider": "...", "model": "..." }],
-                 "arbiter": { "provider": "deepseek", "model": "..." },
-                 "similarity": 0.82, "timeoutMs": 30000 },
-  "rec":       { "ffmpeg": "", "device": ":0" },  // 录音命令与 avfoundation 设备
-  "recordings":{ "keep": 200 },                   // 归档保留条数
-  "insert":    { "mode": "paste", "restoreClipboard": true }, // paste | none
-  "sound": true, "ptt": false,                   // ptt 需辅助功能授权
-  "hotkeys":   { "dictate": { "key": 49, "modifier": "option", "label": "Space" },
-                 "translate": { "key": 17, "modifier": "option", "label": "T" },
-                 "ask": { "key": 12, "modifier": "option", "label": "Q" } },
-  "workflows": { "fast": {}, "quality": { "cross": true }, "cloud": { "cross": true } },
-  "activeWorkflow": "fast",
-  // v7 可编程动作；pipeline 顺序执行，output 是客户端输出适配器
-  "actions": {
-    "dictate":   { "pipeline": ["asr","dict","llm","dict"], "output": "paste" },
-    "translate": { "pipeline": ["asr","dict","translate","dict"], "output": "paste" },
-    "ask":       { "pipeline": ["asr","dict","ask","dict"], "output": "paste" }
-  }
-}
-```
+## 📁 Repository layout
 
-文件布局：`~/.sayless/` 下 `config.json`（0600，含 key，不入库）、`dictionary.json`（0600）、`history.jsonl`（0600）、`feedback.jsonl`（0600）、`recordings/`（音频归档 0600，自动保留最近 200 条，hub 历史页可回放/重转写）、`last-utterance.wav`（0600，.gitignore 排除）、`plugins/`、`ggml-base.bin`。
+| Path | Contents |
+|---|---|
+| `sayless.mjs` | Engine, CLI, ASR adapters, dictionary, history, providers, plugin loader |
+| `asr-ark-ws.mjs` | Ark streaming ASR adapter |
+| `app/` | Menu-bar app: Swift sources, `build.sh`, hub HTML, `Info.plist` |
+| `test/` | Node integration suite with mock providers, mock ASR, and a fake ffmpeg |
+| `tools/` | Demo and headless rendering helpers |
+| `docs/` | Architecture details, memory-integration proposal, screenshots, this reference |
+| `examples/` | Example plugins |
+| `.github/workflows/ci.yml` | macOS CI: syntax check, tests, app build, headless UI smoke test |
 
-数据目录默认 `~/.sayless`，可用 `SAYLESS_DIR=/path` 覆盖（测试、多套配置、外置磁盘均适用）。`history.jsonl` 为控制文件大小，`out` 最多存 1000 字、`raw` 500 字；条目另有完整 `chars` / `rawChars` 计数，`stats` 与 hub 统计不受截断影响。
-
-## 开发与测试
+## 🛠️ Development
 
 ```sh
-npm test                     # 79 个 Node 集成测试：CLI 管线 / 交叉投票 / 重试 / 词典 / learn / history / hub
-npm run check                # node --check + 完整测试
-BUILD_ONLY=1 ./app/build.sh  # 只编译打包 App（不装 /Applications、不启动）
-node tools/gen-hub-demo.mjs /tmp/hub-demo  # Chrome headless 渲染 hub 四页截图 + DOM js-error 检查
+npm test                     # 79 Node integration tests: CLI, pipeline, cross-vote, dictionary, history, hub
+npm run check                # node --check + full test suite
+BUILD_ONLY=1 ./app/build.sh  # compile the app without installing it
+node tools/gen-hub-demo.mjs /tmp/hub-demo   # render hub screenshots + DOM js-error check
 ```
 
-测试不访问真实模型：`test/helpers.mjs` 起本地 mock 供应商/ASR 服务，并用假 ffmpeg 写入 WAV，因此 `run` 的录音等待、重试、交叉投票、历史落盘都能端到端验证。App 另有 headless 调试口子：
+Tests never call real models: `test/helpers.mjs` starts local mock provider and ASR servers and a
+fake ffmpeg writes WAV files, so recording waits, retries, cross-vote, and history persistence are
+covered end to end. CI runs the same commands on `macos-14` with Node 20.
 
-```sh
-CFFIXED_USER_HOME=/tmp/fakehome SAYLESS_DUMP_HUB=/tmp/hub.html SAYLESS_DUMP_HUB_TAB=3 \
-  ./app/SaylessBar.app/Contents/MacOS/SaylessBar
+## 🧭 Scope, limits & roadmap
 
-CFFIXED_USER_HOME=/tmp/fakehome SAYLESS_DUMP_PANEL=/tmp/menubar.png \
-  ./app/SaylessBar.app/Contents/MacOS/SaylessBar
-```
+- **Platform.** The app is macOS-only (13+); the CLI depends on macOS audio APIs for recording.
+- **Not a product.** This is a personal, non-commercial project: no hosted service, no support SLA.
+- **ASR scope.** whisper.cpp (local), MiMo ASR, Ark streaming, and any OpenAI-compatible
+  `/audio/transcriptions` endpoint. Native Anthropic/Gemini protocols are not built in; use a
+  gateway or a plugin.
+- **Permissions.** macOS never grants Accessibility or Microphone automatically; after binary
+  updates TCC may reset and require re-toggling.
+- **Dictionary quality.** Replacement rules are deterministic; a bad rule can corrupt output, so
+  review `sayless learn` proposals before applying them.
 
-## 故障排查
+Roadmap:
 
-| 症状 | 原因与解法 |
-|---|---|
-| 粘贴报错 1002 / 粘贴无效 | 辅助功能授权掉了（ad-hoc 签名重装必掉）→ 重新开关一次；换持久证书后永久解决（见上） |
-| `no speech, peak=0.0` | 麦克风没采到声：确认 SaylessBar 持有麦克风权限、**只运行了一个实例**（两个实例会互抢输入）、说话音量正常 |
-| key 鉴权 402/403 | 套餐与按量通道打错：StepFun 要打 `/step_plan/v1` 且先实名；`sk-sp-`/`sk-kimi-`/`tp-` 各自只认自家专属域名；`sayless doctor` 分组实测 |
-| 菜单栏 App 热键无反应 | 辅助功能未授权（tap 未启用走 Carbon 兜底）→ 菜单"请求辅助功能授权…"或系统设置重开 |
-| hub 打不开/渲染异常 | 看日志 `~/.sayless/saylessbar.log`；模板在 `app/hub.html`，重新 `build.sh`；也可用上面的 `SAYLESS_DUMP_HUB` 导出 HTML 检查 |
-| 设置页改了 ASR / 模型却不生效 | v4.5 起顶层 `asr` / `llm` / `translate` / `ask` 优先；持久 `activeWorkflow` 只影响投票策略。若手动用 `--workflow`，会临时应用整套预设 |
-| App 报“找不到 sayless CLI” | 重新 `app/build.sh`（会内置 CLI），或 `ln -sf "$PWD/sayless.mjs" /opt/homebrew/bin/sayless`；也可用 `SAYLESS_CLI` 指定 |
-| hub 输入框打不了字 / 搜索没反应 | v4.5 已改为普通可聚焦窗口并修复历史搜索 class；确认运行的是新构建的 App |
-| `sayless run` 还没说完就开始转写 | v4.5 已修复：`rec` 改为 Promise，等 ffmpeg 真正退出后才进入 ASR |
+- [ ] Add more ASR adapters and a documented adapter contract
+- [ ] Expand the hub's history analytics without changing the local-first data model
+- [ ] Publish more plugin recipes (per-app tone, domain terminology, external sync)
+- [ ] Improve cross-vote cost controls and per-provider timeouts
 
-## 隐私
+## 🤝 Contributing
 
-语音默认只发给**你自己配置的本地 whisper**，不出机器；切云端 ASR/换模型时，数据只流向你亲自填入 key 的那些端点。听写历史、词语库、录音归档、插件全在本地 `~/.sayless/`，权限收紧到 0600；hub 读配置时会把 `apiKey` 全部剥掉，只给前端 `hasKey` 布尔值。
+Issues and pull requests are welcome. Before opening a PR:
 
-## License
+1. run `npm test` and `npm run check`;
+2. keep the non-commercial licensing terms intact;
+3. never commit API keys, `~/.sayless` data, recordings, or personal dictionaries;
+4. if you change the engine protocol, update [ARCHITECTURE.md](ARCHITECTURE.md) and the reference doc.
 
-**非商用学习项目**：仅供个人学习、研究与交流，严禁任何形式的商业使用（出售 / 付费分发 / SaaS / 闭源二次发行 / 并入商业产品）。详见 [LICENSE](LICENSE)。
+If Sayless is useful to you, consider leaving a ⭐.
 
-变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+## 📄 License & attribution
+
+Sayless is released under a **custom non-commercial license**: personal study, research, and
+non-commercial sharing are allowed with the notice preserved; selling, paid distribution, SaaS,
+closed-source redistribution, and inclusion in commercial products are prohibited. Read the exact
+terms in [LICENSE](LICENSE). This project contains no code, assets, or data from third-party
+dictation apps and is not affiliated with the original Typeless developers.
+
+Model files downloaded for whisper.cpp follow their own licenses; provider endpoints are governed by
+each vendor's terms. The changelog is in [CHANGELOG.md](CHANGELOG.md), and a proposed long-term
+memory integration is described in [docs/MEMORY_INTEGRATION.md](docs/MEMORY_INTEGRATION.md).
+
+## ⭐ Star history
+
+<div align="center">
+
+<a href="https://star-history.com/#LeoLin990405/sayless&Date">
+  <img src="https://api.star-history.com/svg?repos=LeoLin990405/sayless&type=Date" alt="Star history" width="640">
+</a>
+
+</div>
